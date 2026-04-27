@@ -6,7 +6,7 @@
 
 Slicer URI Bridge helps open 3D model links from websites in Bambu Studio, including sites that do not provide a native Bambu Studio button or where that integration is not available.
 
-https://github.com/user-attachments/assets/b134a67e-8531-4c5f-b6ad-f32497cae6fa
+https://github.com/user-attachments/assets/efc25540-d784-4924-991c-8720b6bab3eb
 
 It registers URI handlers for other slicers (PrusaSlicer, OrcaSlicer, Cura, and Creality Print) and routes those links through a small Python bridge that downloads the model safely and opens it in Bambu Studio.
 
