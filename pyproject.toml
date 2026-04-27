@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "slicer-uri-bridge"
+version = "0.1.0"
+description = "Register slicer URI handlers and bridge slicer links to Bambu Studio."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+  { name = "Slicer URI Bridge contributors" }
+]
+keywords = ["uri-handler", "slicer", "bambu-studio", "cura", "prusaslicer", "orcaslicer"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Operating System :: Microsoft :: Windows",
+  "Operating System :: MacOS",
+  "Operating System :: POSIX :: Linux",
+]
+
+[project.scripts]
+slicer-uri-bridge = "slicer_uri_bridge.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+slicer_uri_bridge = ["resources/default_config.toml", "resources/macos-launcher.applescript"]

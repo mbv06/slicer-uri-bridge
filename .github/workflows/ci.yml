@@ -1,0 +1,47 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  docker-test:
+    name: Python tests in Docker
+    if: github.event_name != 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    container:
+      image: python:3.13-slim
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install package
+        run: python -m pip install -e .
+
+      - name: Run tests
+        run: python -m unittest discover -s tests
+
+  macos-test:
+    name: macOS osacompile tests
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: macos-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install package
+        run: python -m pip install -e .
+
+      - name: Run tests
+        run: python -m unittest discover -s tests

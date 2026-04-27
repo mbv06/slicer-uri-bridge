@@ -1,0 +1,19 @@
+# download_folder = "/path/to/download/instead/of/temp/"
+
+[security]
+allow_plain_http = false
+allow_any_original_host = true
+allowed_extensions = [".3mf", ".stl", ".step", ".stp", ".obj"]
+# allowed_hosts is only used when allow_any_original_host = false
+allowed_hosts = [
+  "files.printables.com",
+  "www.thingiverse.com",
+  "cdn.thingiverse.com",
+  "objects-us-east-1.dream.io",
+  "internal-creality-usa.oss-accelerate.aliyuncs.com",
+]
+
+[bambu_studio]
+windows = 'C:\Program Files\Bambu Studio\bambu-studio.exe'
+macos = "/Applications/BambuStudio.app"
+linux = "~/Applications/BambuStudio.AppImage"
