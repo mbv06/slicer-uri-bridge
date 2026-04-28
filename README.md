@@ -12,6 +12,22 @@ It registers URI handlers for other slicers (PrusaSlicer, OrcaSlicer, Cura, and 
 
 ## Installation
 
+### Windows (automatic)
+
+Open PowerShell and run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -c "iwr -useb https://raw.githubusercontent.com/mbv06/slicer-uri-bridge/main/install-windows.ps1 | iex"
+```
+
+The installer creates a private virtual environment in `%LOCALAPPDATA%\slicer-uri-bridge`, installs or upgrades the package there, adds the Scripts directory to the user `PATH`, initializes config if needed, and registers URI handlers.
+
+After installation, open a new terminal window if the command is not found, then test the registered handler by opening a known Benchy model URI:
+
+```powershell
+slicer-uri-bridge test
+```
+
 ### macOS (automatic)
 
 Run the installer:
@@ -131,7 +147,7 @@ slicer-uri-bridge config-path
 
 Log files in that directory record each handler invocation and can help diagnose download failures, URI parsing issues, or slicer launch problems.
 
-If the `slicer-uri-bridge` command is not found after installation, make sure the Python scripts directory is on your `PATH`. On macOS with the automatic installer, open a new Terminal window. On Windows, ensure the `Add python.exe to PATH` option was enabled during Python installation.
+If the `slicer-uri-bridge` command is not found after installation, make sure the Python scripts directory is on your `PATH`. On macOS with the automatic installer, open a new Terminal window. On Windows, ensure the `Add python.exe to PATH` option was enabled during Python installation, or use the automatic installer above. As a fallback, you can always run `python -m slicer_uri_bridge` instead of `slicer-uri-bridge`.
 
 If URI links do not open after registration, verify the current handler status:
 

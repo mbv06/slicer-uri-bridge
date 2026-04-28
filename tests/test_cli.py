@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import sys
 import unittest
 import uuid
 from io import StringIO
@@ -33,6 +34,17 @@ class FakeTty:
 
 
 class InteractiveOnboardingTests(unittest.TestCase):
+    def test_package_can_run_as_python_module(self) -> None:
+        completed = subprocess.run(
+            [sys.executable, "-m", "slicer_uri_bridge", "--version"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertIn("slicer-uri-bridge", completed.stdout)
+
     def test_no_args_requires_tty(self) -> None:
         class FakePipe:
             def isatty(self) -> bool:
