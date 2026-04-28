@@ -171,27 +171,22 @@ main() {
 
   cat <<EOF
 
-Done.
+✅ Done! Slicer URI Bridge is installed.
 
-Command:
-  slicer-uri-bridge
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Config:
-  ${HOME}/.config/slicer-uri-bridge/config.toml
+  📌 Command:     slicer-uri-bridge
+  ⚙️  Config:      ~/.config/slicer-uri-bridge/config.toml
+  📂 Logs:        ~/.config/slicer-uri-bridge/launcher.log
+                  ~/.config/slicer-uri-bridge/bridge.log
+  🧪 Test:        slicer-uri-bridge test
+  📦 Environment:  ${VENV}
 
-Logs:
-  ${HOME}/.config/slicer-uri-bridge/launcher.log
-  ${HOME}/.config/slicer-uri-bridge/bridge.log
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Test:
-  slicer-uri-bridge test
+  ⚠️  If "slicer-uri-bridge" is not found, open a new Terminal window.
+  🔄 To update later, just run this installer again.
 
-Installed environment:
-  ${VENV}
-
-If "slicer-uri-bridge" is not found, open a new Terminal window.
-
-To update later, run this installer again.
 EOF
 }
 
