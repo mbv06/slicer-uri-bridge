@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import ipaddress
+import json
 import logging
 import posixpath
 import re
@@ -17,6 +18,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import urllib.response
+import zipfile
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from urllib.parse import urlsplit
 
@@ -34,6 +36,9 @@ MAX_DOWNLOAD_BYTES = 200 * 1024 * 1024
 BUFFER_SIZE = 81920
 REDIRECT_CODES = {301, 302, 303, 307, 308}
 EXECUTABLE_MODE_BITS = stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
+PROJECT_SETTINGS_PATH = "Metadata/project_settings.config"
+POST_PROCESS_ACTION_DEFAULT = "warn"
+POST_PROCESS_ACTIONS = {"ignore", "warn", "block"}
 
 
 class BridgeError(RuntimeError):
@@ -80,7 +85,18 @@ def is_host(value: str) -> bool:
         return bool(p.hostname) and not any((p.scheme, p.path, p.query, p.fragment, p.username, p.password))
     except ValueError:
         return False
-    
+
+
+def normalize_post_process_action(value: object) -> str:
+    if isinstance(value, str):
+        action = value.strip().lower()
+        if action in POST_PROCESS_ACTIONS:
+            return action
+
+    logger.warning("Invalid security.post_process_action; using warn")
+    return POST_PROCESS_ACTION_DEFAULT
+
+
 def load_config() -> dict:
     if not CONFIG_FILE.is_file():
         raise BridgeError(missing_config_message(CONFIG_FILE))
@@ -105,6 +121,8 @@ def load_config() -> dict:
     if not isinstance(security.get("allow_any_original_host", False), bool):
         logger.warning("Invalid security.allow_any_original_host; using false")
         security["allow_any_original_host"] = False
+
+    security["post_process_action"] = normalize_post_process_action(security.get("post_process_action"))
 
     allowed_hosts = security.get("allowed_hosts", [])
     valid_hosts = []
@@ -222,6 +240,15 @@ def extract_download(protocol_uri: str, allowed_extensions: set[str]) -> tuple[s
         raise BridgeError("Download URL contains unsupported control characters.")
 
     return strip_trailing_model_slash(download_url, allowed_extensions), suggested_name
+
+
+def is_empty_bambustudioopen_uri(protocol_uri: str) -> bool:
+    parsed = urllib.parse.urlsplit(protocol_uri)
+    if parsed.scheme.lower() != "bambustudioopen":
+        return False
+
+    payload = protocol_uri.split(":", 1)[1].lstrip("/")
+    return not urllib.parse.unquote(payload).strip()
 
 
 def filename_from_url(url: str) -> str | None:
@@ -504,6 +531,55 @@ def validate_downloaded_file(path: Path) -> None:
         raise BridgeError("Downloaded file is a Mach-O executable, refusing to open it.")
 
 
+def scan_3mf_post_process(path: Path) -> list[str] | None:
+    if path.suffix.lower() != ".3mf":
+        return None
+
+    try:
+        with zipfile.ZipFile(path) as archive:
+            settings = json.loads(archive.read(PROJECT_SETTINGS_PATH).decode("utf-8-sig"))
+            if isinstance(raw := settings.get("post_process"), list):
+                return raw or None
+    except Exception as exc:
+        logger.warning("Could not inspect 3MF project settings in %s: %s", path, exc)
+
+    return None
+
+
+def post_process_message(path: Path, commands: list[str]) -> str:
+    if len(commands) == 1:
+        post_process = commands[0]
+    else:
+        post_process = "\n\n".join(
+            f"[{index}]\n{command}" for index, command in enumerate(commands, start=1)
+        )
+
+    return (
+        "Downloaded 3MF file contains a post-processing script.\n\n"
+        f"File: {path}\n\n"
+        "post_process:\n"
+        f"{post_process}"
+    )
+
+
+def check_3mf_post_process(path: Path, action: str) -> None:
+    if action == "ignore":
+        return
+
+    commands = scan_3mf_post_process(path)
+    # No real commands if every value becomes empty after trimming whitespace.
+    if commands is None or not any(command.strip() for command in commands):
+        return
+
+    message = post_process_message(path, commands)
+    logger.warning("%s", message)
+
+    if action == "block":
+        raise BridgeError(message)
+
+    show_warning(message)
+
+
 def has_executable_bits(mode: int) -> bool:
     if IS_WINDOWS:
         return False
@@ -592,7 +668,7 @@ def launch_bambu(command: list[str], model_path: Path) -> None:
         raise BridgeError(f"Failed to start Bambu Studio: {exc}") from exc
 
 
-def show_error(message: str) -> None:
+def show_message(message: str, kind: str) -> None:
     print(message, file=sys.stderr)
     try:
         import tkinter
@@ -600,15 +676,24 @@ def show_error(message: str) -> None:
 
         root = tkinter.Tk()
         root.withdraw()
-        messagebox.showerror("Bambu Studio URI Bridge", message)
+        getattr(messagebox, kind)("Slicer URI Bridge", message)
         root.destroy()
     except Exception:
         pass
 
 
+def show_error(message: str) -> None:
+    show_message(message, "showerror")
+
+
+def show_warning(message: str) -> None:
+    show_message(message, "showwarning")
+
+
 def main(argv: list[str] | None = None) -> int:
     setup_logging()
     args = parse_args(sys.argv[1:] if argv is None else argv)
+    uri: str | None = None
     local_path: Path | None = None
     download_folder: Path | None = None
 
@@ -620,7 +705,15 @@ def main(argv: list[str] | None = None) -> int:
         download_folder = download_folder_from_config(config)
 
         uri = resolve_protocol_uri(args)
-        download_url, suggested_name = extract_download(uri, allowed_extensions)
+        if is_empty_bambustudioopen_uri(uri):
+            logger.info("Ignoring empty bambustudioopen URI: %r", uri)
+            return 0
+
+        try:
+            download_url, suggested_name = extract_download(uri, allowed_extensions)
+        except BridgeError:
+            logger.error("Input URI: %r", uri)
+            raise
         logger.info(f"Resolved input URI with download URL: {download_url}")
         allowed_hosts, allow_any_original_host = load_allowed_hosts(config)
         validate_remote_url(
@@ -643,6 +736,7 @@ def main(argv: list[str] | None = None) -> int:
             allow_plain_http=allow_plain_http,
         )
         validate_downloaded_file(local_path)
+        check_3mf_post_process(local_path, security["post_process_action"])
 
         launch_bambu(command, local_path)
 

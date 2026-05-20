@@ -4,6 +4,9 @@
 allow_plain_http = false
 allow_any_original_host = true
 allowed_extensions = [".3mf", ".stl", ".step", ".stp", ".obj"]
+# 3MF files can contain Bambu/Orca post-processing commands.
+# Values: "ignore", "warn" (show a warning and open), or "block" (refuse to open).
+post_process_action = "warn"
 # allowed_hosts is only used when allow_any_original_host = false
 allowed_hosts = [
   "files.printables.com",

@@ -5,6 +5,8 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](https://opensource.org/licenses/MIT)
 [![Platform: Windows | macOS | Linux](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)]()
 
+[Installation](#installation) · [Security Model](#security-model) · [Changelog](CHANGELOG.md)
+
 Slicer URI Bridge helps open 3D model links from websites in Bambu Studio, including sites that do not provide a native Bambu Studio button or where that integration is not available.
 
 https://github.com/user-attachments/assets/32b1fd48-4498-42de-81d6-629b452712b9
@@ -135,8 +137,11 @@ The bridge validates downloads before opening them:
 * redirect targets are revalidated
 * downloaded files must use an allowed model extension
 * empty files and obvious executable formats are refused
+* 3MF files are checked for embedded post-processing scripts ([scripts that can run after slicing](https://manual.slic3r.org/advanced/post-processing))
 
 By default, downloads are accepted from any host. To restrict downloads to specific hosts, set `allow_any_original_host = false` in the config and use the `allowed_hosts` list (the default config includes CDNs for Printables, Thingiverse, and Creality).
+
+All available options are described in the bundled [`default_config.toml`](src/slicer_uri_bridge/resources/default_config.toml) template and copied into the generated `config.toml` file.
 
 ## Troubleshooting
 

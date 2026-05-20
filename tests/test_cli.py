@@ -33,6 +33,30 @@ class FakeTty:
         return True
 
 
+class CliVersionTests(unittest.TestCase):
+    def test_version_action_uses_fallback_when_package_metadata_is_absent(self) -> None:
+        with (
+            patch("slicer_uri_bridge.cli.package_version", side_effect=cli.PackageNotFoundError),
+            patch("sys.stdout", new_callable=StringIO) as stdout,
+        ):
+            parser = cli.build_parser()
+            with self.assertRaises(SystemExit) as exit_context:
+                parser.parse_args(["--version"])
+
+        self.assertEqual(exit_context.exception.code, 0)
+        self.assertIn("slicer-uri-bridge unknown", stdout.getvalue())
+
+    def test_subcommands_do_not_require_package_metadata(self) -> None:
+        with (
+            patch("slicer_uri_bridge.cli.package_version", side_effect=cli.PackageNotFoundError),
+            patch("slicer_uri_bridge.cli.user_config_path", return_value=Path("config.toml")),
+            patch("sys.stdout", new_callable=StringIO) as stdout,
+        ):
+            self.assertEqual(cli.main(["config-path"]), 0)
+
+        self.assertIn("config.toml", stdout.getvalue())
+
+
 class InteractiveOnboardingTests(unittest.TestCase):
     def test_package_can_run_as_python_module(self) -> None:
         completed = subprocess.run(
