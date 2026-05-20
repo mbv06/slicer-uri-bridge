@@ -224,6 +224,15 @@ def extract_download(protocol_uri: str, allowed_extensions: set[str]) -> tuple[s
     return strip_trailing_model_slash(download_url, allowed_extensions), suggested_name
 
 
+def is_empty_bambustudioopen_uri(protocol_uri: str) -> bool:
+    parsed = urllib.parse.urlsplit(protocol_uri)
+    if parsed.scheme.lower() != "bambustudioopen":
+        return False
+
+    payload = protocol_uri.split(":", 1)[1].lstrip("/")
+    return not urllib.parse.unquote(payload).strip()
+
+
 def filename_from_url(url: str) -> str | None:
     parsed = urllib.parse.urlsplit(url)
     query_name = urllib.parse.parse_qs(parsed.query).get("name", [""])[0].strip()
@@ -609,6 +618,7 @@ def show_error(message: str) -> None:
 def main(argv: list[str] | None = None) -> int:
     setup_logging()
     args = parse_args(sys.argv[1:] if argv is None else argv)
+    uri: str | None = None
     local_path: Path | None = None
     download_folder: Path | None = None
 
@@ -620,7 +630,15 @@ def main(argv: list[str] | None = None) -> int:
         download_folder = download_folder_from_config(config)
 
         uri = resolve_protocol_uri(args)
-        download_url, suggested_name = extract_download(uri, allowed_extensions)
+        if is_empty_bambustudioopen_uri(uri):
+            logger.info("Ignoring empty bambustudioopen URI: %r", uri)
+            return 0
+
+        try:
+            download_url, suggested_name = extract_download(uri, allowed_extensions)
+        except BridgeError:
+            logger.error("Input URI: %r", uri)
+            raise
         logger.info(f"Resolved input URI with download URL: {download_url}")
         allowed_hosts, allow_any_original_host = load_allowed_hosts(config)
         validate_remote_url(

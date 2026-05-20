@@ -15,7 +15,9 @@ from slicer_uri_bridge.handler import (
     choose_filename,
     extract_download,
     filename_from_url,
+    is_empty_bambustudioopen_uri,
     normalize_host,
+    main,
     read_protocol_uri,
     has_executable_bits,
     launch_bambu,
@@ -67,6 +69,69 @@ class DownloadUriTests(unittest.TestCase):
                 "bambustudioopen://https%3A%2F%2Ffiles.example%2Fbad%0Aname.3mf",
                 {".3mf"},
             )
+
+
+class BambuEmptyUriTests(unittest.TestCase):
+    def test_detects_empty_bambustudioopen_uri(self) -> None:
+        self.assertTrue(is_empty_bambustudioopen_uri("bambustudioopen:///"))
+        self.assertTrue(is_empty_bambustudioopen_uri("bambustudioopen://%20%20"))
+        self.assertFalse(
+            is_empty_bambustudioopen_uri(
+                "bambustudioopen://https%3A%2F%2Ffiles.example%2Fmodels%2Fbenchy.3mf"
+            )
+        )
+        self.assertFalse(is_empty_bambustudioopen_uri("prusaslicer://open?file="))
+
+    def test_main_ignores_empty_bambustudioopen_uri(self) -> None:
+        config = {
+            "security": {
+                "allowed_extensions": {".3mf"},
+                "allow_plain_http": False,
+                "allowed_hosts": [],
+                "allow_any_original_host": True,
+            },
+            "bambu_studio": {},
+        }
+
+        with (
+            patch("slicer_uri_bridge.handler.load_config", return_value=config),
+            patch("slicer_uri_bridge.handler.resolve_bambu_command") as resolve_command,
+            patch("slicer_uri_bridge.handler.extract_download") as extract,
+            patch("slicer_uri_bridge.handler.launch_bambu") as launch,
+        ):
+            exit_code = main(["bambustudioopen:///"])
+
+        self.assertEqual(exit_code, 0)
+        resolve_command.assert_not_called()
+        extract.assert_not_called()
+        launch.assert_not_called()
+
+
+class MainLoggingTests(unittest.TestCase):
+    def test_logs_input_uri_when_download_extraction_fails(self) -> None:
+        config = {
+            "security": {
+                "allowed_extensions": {".3mf"},
+                "allow_plain_http": False,
+                "allowed_hosts": [],
+                "allow_any_original_host": True,
+            }
+        }
+
+        with (
+            patch("slicer_uri_bridge.handler.load_config", return_value=config),
+            patch("slicer_uri_bridge.handler.show_error"),
+            self.assertLogs("slicer_uri_bridge", level="ERROR") as captured,
+        ):
+            exit_code = main(["prusaslicer://open?file=%20%20"])
+
+        self.assertEqual(exit_code, 1)
+        self.assertTrue(
+            any("Input URI: 'prusaslicer://open?file=%20%20'" in line for line in captured.output)
+        )
+        self.assertTrue(
+            any("Failed: Invalid prusaslicer URI." in line for line in captured.output)
+        )
 
 
 class FilenameTests(unittest.TestCase):

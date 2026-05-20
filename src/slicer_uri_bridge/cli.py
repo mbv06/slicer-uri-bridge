@@ -6,9 +6,9 @@ import shutil
 import subprocess
 import sys
 import tomllib
+from importlib.metadata import version as package_version
 from pathlib import Path
 
-from . import __version__
 from .config import config_matches_default, init_user_config, user_config_path
 from .manager import main as manager_main
 
@@ -32,7 +32,11 @@ def build_parser() -> argparse.ArgumentParser:
         prog="slicer-uri-bridge",
         description="Register slicer URI handlers and bridge slicer links to Bambu Studio.",
     )
-    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {package_version('slicer-uri-bridge')}",
+    )
 
     subparsers = parser.add_subparsers(dest="command", required=True)
 
