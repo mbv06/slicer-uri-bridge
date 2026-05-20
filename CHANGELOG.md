@@ -7,6 +7,7 @@ All notable changes to this project are documented here.
 ### Added
 
 - Add optional 3MF post-processing script checks. By default, the bridge notifies the user, writes the script text to the log, and then continues opening the file.
+- Add `post_process_action` config support with `warn`, `block`, and `ignore` modes.
 
 ### Fixed
 

@@ -5,6 +5,8 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](https://opensource.org/licenses/MIT)
 [![Platform: Windows | macOS | Linux](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)]()
 
+[Installation](#installation) · [Security Model](#security-model) · [Changelog](CHANGELOG.md)
+
 Slicer URI Bridge helps open 3D model links from websites in Bambu Studio, including sites that do not provide a native Bambu Studio button or where that integration is not available.
 
 https://github.com/user-attachments/assets/32b1fd48-4498-42de-81d6-629b452712b9

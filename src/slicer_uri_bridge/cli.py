@@ -6,13 +6,14 @@ import shutil
 import subprocess
 import sys
 import tomllib
-from importlib.metadata import version as package_version
+from importlib.metadata import PackageNotFoundError, version as package_version
 from pathlib import Path
 
 from .config import config_matches_default, init_user_config, user_config_path
 from .manager import main as manager_main
 
 
+PACKAGE_NAME = "slicer-uri-bridge"
 YES_VALUES = {"y", "yes"}
 NO_VALUES = {"n", "no"}
 IS_WINDOWS = sys.platform == "win32"
@@ -27,6 +28,13 @@ def eprint(message: str) -> None:
     print(message, file=sys.stderr)
 
 
+def metadata_version() -> str:
+    try:
+        return package_version(PACKAGE_NAME)
+    except PackageNotFoundError:
+        return "unknown"
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="slicer-uri-bridge",
@@ -35,7 +43,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--version",
         action="version",
-        version=f"%(prog)s {package_version('slicer-uri-bridge')}",
+        version=f"%(prog)s {metadata_version()}",
     )
 
     subparsers = parser.add_subparsers(dest="command", required=True)
