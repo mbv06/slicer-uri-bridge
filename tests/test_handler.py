@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 import unittest
 import uuid
+import zipfile
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -12,15 +14,19 @@ from unittest.mock import patch
 from slicer_uri_bridge.handler import (
     BridgeError,
     build_destination,
+    check_3mf_post_process,
     choose_filename,
     extract_download,
     filename_from_url,
+    load_config,
     is_empty_bambustudioopen_uri,
     normalize_host,
+    normalize_post_process_action,
     main,
     read_protocol_uri,
     has_executable_bits,
     launch_bambu,
+    scan_3mf_post_process,
     validate_downloaded_file,
     validate_remote_url,
 )
@@ -38,6 +44,11 @@ def temporary_directory() -> Iterator[str]:
         yield str(path)
     finally:
         shutil.rmtree(path, ignore_errors=True)
+
+
+def write_3mf(path: Path, project_settings: object, *, member: str = "Metadata/project_settings.config") -> None:
+    with zipfile.ZipFile(path, "w") as archive:
+        archive.writestr(member, json.dumps(project_settings))
 
 
 class DownloadUriTests(unittest.TestCase):
@@ -280,6 +291,117 @@ class FileValidationTests(unittest.TestCase):
     def test_has_executable_bits_is_disabled_on_windows(self) -> None:
         with patch("slicer_uri_bridge.handler.IS_WINDOWS", True):
             self.assertFalse(has_executable_bits(0o100755))
+
+
+class ThreeMfPostProcessTests(unittest.TestCase):
+    def test_scan_3mf_post_process_detects_project_setting(self) -> None:
+        script = r"C:\Users\maker\inspect_model.ps1"
+        with temporary_directory() as temp_dir:
+            path = Path(temp_dir) / "model.3mf"
+            write_3mf(path, {"post_process": [script]})
+
+            result = scan_3mf_post_process(path)
+
+        self.assertEqual(result, [script])
+
+    def test_check_3mf_post_process_ignores_blank_values(self) -> None:
+        with temporary_directory() as temp_dir:
+            path = Path(temp_dir) / "model.3mf"
+            write_3mf(path, {"post_process": ["", "   "]})
+
+            with patch("slicer_uri_bridge.handler.show_warning") as show_warning:
+                check_3mf_post_process(path, "warn")
+
+        show_warning.assert_not_called()
+
+    def test_check_3mf_post_process_warns_and_allows(self) -> None:
+        script = r"C:\Users\maker\inspect_model.ps1"
+        with temporary_directory() as temp_dir:
+            path = Path(temp_dir) / "model.3mf"
+            write_3mf(path, {"post_process": [script]})
+
+            with (
+                patch("slicer_uri_bridge.handler.show_warning") as show_warning,
+                self.assertLogs("slicer_uri_bridge", level="WARNING") as captured,
+            ):
+                check_3mf_post_process(path, "warn")
+
+        show_warning.assert_called_once()
+        self.assertIn(script, show_warning.call_args.args[0])
+        self.assertTrue(any(script in line for line in captured.output))
+
+    def test_check_3mf_post_process_blocks_when_configured(self) -> None:
+        with temporary_directory() as temp_dir:
+            path = Path(temp_dir) / "model.3mf"
+            write_3mf(path, {"post_process": [r"C:\Users\maker\inspect_model.ps1"]})
+
+            with self.assertRaisesRegex(BridgeError, "post-processing script"):
+                check_3mf_post_process(path, "block")
+
+    def test_main_does_not_launch_bambu_when_post_process_is_blocked(self) -> None:
+        script = r"C:\Users\maker\inspect_model.ps1"
+        config = {
+            "security": {
+                "allowed_extensions": [".3mf"],
+                "allow_plain_http": False,
+                "allowed_hosts": [],
+                "allow_any_original_host": True,
+                "post_process_action": "block",
+            },
+            "bambu_studio": {},
+        }
+
+        with temporary_directory() as temp_dir:
+            path = Path(temp_dir) / "model.3mf"
+            write_3mf(path, {"post_process": [script]})
+
+            with (
+                patch("slicer_uri_bridge.handler.load_config", return_value=config),
+                patch("slicer_uri_bridge.handler.validate_remote_url"),
+                patch("slicer_uri_bridge.handler.resolve_bambu_command", return_value=["bambu-studio"]),
+                patch("slicer_uri_bridge.handler.download_model", return_value=path),
+                patch("slicer_uri_bridge.handler.launch_bambu") as launch,
+                patch("slicer_uri_bridge.handler.show_error") as show_error,
+            ):
+                exit_code = main(["bambustudioopen://https%3A%2F%2Ffiles.example%2Fmodel.3mf"])
+
+        self.assertEqual(exit_code, 1)
+        launch.assert_not_called()
+        show_error.assert_called_once()
+        self.assertIn(script, show_error.call_args.args[0])
+
+    def test_check_3mf_post_process_ignore_skips_archive_inspection(self) -> None:
+        with temporary_directory() as temp_dir:
+            path = Path(temp_dir) / "model.3mf"
+            path.write_bytes(b"not a zip")
+
+            with patch("slicer_uri_bridge.handler.zipfile.ZipFile") as zip_file:
+                check_3mf_post_process(path, "ignore")
+
+        zip_file.assert_not_called()
+
+    def test_post_process_action_defaults_to_warn_for_invalid_values(self) -> None:
+        self.assertEqual(normalize_post_process_action(None), "warn")
+        self.assertEqual(normalize_post_process_action("block"), "block")
+        self.assertEqual(normalize_post_process_action("off"), "warn")
+
+    def test_load_config_defaults_post_process_action_to_warn(self) -> None:
+        with temporary_directory() as temp_dir:
+            config_path = Path(temp_dir) / "config.toml"
+            config_path.write_text("""\
+[security]
+allow_any_original_host = true
+allowed_extensions = [".3mf"]
+
+[bambu_studio]
+""",
+                encoding="utf-8",
+            )
+
+            with patch("slicer_uri_bridge.handler.CONFIG_FILE", config_path):
+                config = load_config()
+
+        self.assertEqual(config["security"]["post_process_action"], "warn")
 
 
 class ProtocolFileTests(unittest.TestCase):
