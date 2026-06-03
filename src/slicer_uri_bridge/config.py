@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import os
 import sys
+from collections.abc import Mapping
 from importlib import resources
 from pathlib import Path
-from typing import Mapping
 
 CONFIG_DIR_NAME = "slicer-uri-bridge"
 CONFIG_FILE_NAME = "config.toml"
@@ -51,11 +51,7 @@ def user_log_path(
 
 
 def default_config_text() -> str:
-    return (
-        resources.files("slicer_uri_bridge")
-        .joinpath("resources", "default_config.toml")
-        .read_text(encoding="utf-8")
-    )
+    return resources.files("slicer_uri_bridge").joinpath("resources", "default_config.toml").read_text(encoding="utf-8")
 
 
 def init_user_config(*, force: bool = False) -> tuple[Path, bool]:

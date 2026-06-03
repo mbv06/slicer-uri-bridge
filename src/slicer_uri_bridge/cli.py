@@ -6,12 +6,12 @@ import shutil
 import subprocess
 import sys
 import tomllib
-from importlib.metadata import PackageNotFoundError, version as package_version
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as package_version
 from pathlib import Path
 
 from .config import config_matches_default, init_user_config, user_config_path
 from .manager import main as manager_main
-
 
 PACKAGE_NAME = "slicer-uri-bridge"
 YES_VALUES = {"y", "yes"}
@@ -124,7 +124,9 @@ def warn_if_bambu_target_missing(config_path: Path) -> None:
     eprint(f"Warning: Bambu Studio path from config was not found: {configured}")
     eprint(f"Edit {config_path} and update [bambu_studio].{key}.")
     if key != "windows":
-        eprint("Fallback: if this path stays invalid, the bridge will try to open models with your default application.")
+        eprint(
+            "Fallback: if this path stays invalid, the bridge will try to open models with your default application."
+        )
 
 
 def interactive_onboarding() -> int:

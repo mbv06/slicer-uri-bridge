@@ -13,9 +13,9 @@ import subprocess
 import sys
 import tempfile
 from abc import ABC, abstractmethod
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
 
 from .config import missing_config_message, user_config_path, user_log_path
 
@@ -59,7 +59,12 @@ class ActionResult:
 PROTOCOLS: tuple[ProtocolDef, ...] = (
     ProtocolDef("bambu", "Bambu", "bambustudioopen", ("bambu", "bambuopen", "bambustudio", "bambustudioopen")),
     ProtocolDef("cura", "Cura", "cura", ("cura", "ultimaker-cura", "ultimakercura")),
-    ProtocolDef("creality", "Creality", "crealityprintlink", ("creality", "crealityprint", "creality-print", "crealityprintlink", "creality-print-link")),
+    ProtocolDef(
+        "creality",
+        "Creality",
+        "crealityprintlink",
+        ("creality", "crealityprint", "creality-print", "crealityprintlink", "creality-print-link"),
+    ),
     ProtocolDef("prusa", "Prusa", "prusaslicer", ("prusa", "prusa-slicer", "prusaslicer")),
     ProtocolDef("orca", "Orca", "orcaslicer", ("orca", "orca-slicer", "orcaslicer")),
 )
@@ -101,7 +106,6 @@ class UriHandlerManager(ABC):
         self.script_dir = script_dir.resolve()
         self.python_command = python_command
         self.dry_run = dry_run
-
 
     @property
     @abstractmethod
@@ -339,7 +343,7 @@ class LinuxXdgManager(UriHandlerManager):
         prefix = f"{field_name}="
         for raw_line in path.read_text(encoding="utf-8", errors="replace").splitlines():
             if raw_line.startswith(prefix):
-                return raw_line[len(prefix):]
+                return raw_line[len(prefix) :]
         return None
 
     def get_desktop_exec(self, desktop_id: str) -> str | None:
@@ -355,9 +359,7 @@ class LinuxXdgManager(UriHandlerManager):
         expected_mime_types = {self.mime_for(item.protocol) for item in definitions}
         if self.get_desktop_exec(DESKTOP_ID) != self.expected_desktop_exec():
             return False
-        if self.get_desktop_mime_types(DESKTOP_ID) != expected_mime_types:
-            return False
-        return True
+        return self.get_desktop_mime_types(DESKTOP_ID) == expected_mime_types
 
     def get_state(self, definition: ProtocolDef) -> HandlerState:
         effective = self.get_effective_default_handler(definition.protocol)
@@ -380,14 +382,21 @@ class LinuxXdgManager(UriHandlerManager):
         if not command:
             return
         with contextlib.suppress(OSError):
-            subprocess.run([command, str(self.applications_dir)], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run(
+                [command, str(self.applications_dir)], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            )
 
     def apply_xdg_default(self, mime: str) -> None:
         command = shutil.which("xdg-mime")
         if not command:
             return
         with contextlib.suppress(OSError):
-            subprocess.run([command, "default", DESKTOP_ID, mime], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run(
+                [command, "default", DESKTOP_ID, mime],
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
 
     def write_bridge_files(self, definitions: Iterable[ProtocolDef]) -> None:
         self.check_expected_runtime()
@@ -405,19 +414,21 @@ class LinuxXdgManager(UriHandlerManager):
         if definitions:
             mime_types = "".join(f"{self.mime_for(item.protocol)};" for item in definitions)
             self.desktop_file.write_text(
-                "\n".join((
-                    "[Desktop Entry]",
-                    "Type=Application",
-                    f"Name={APP_NAME}",
-                    "Comment=Route slicer URI schemes to a Python bridge",
-                    "NoDisplay=true",
-                    "Terminal=false",
-                    f"Exec={self.expected_desktop_exec()}",
-                    f"MimeType={mime_types}",
-                    "Categories=Utility;",
-                    "StartupNotify=false",
-                    "",
-                )),
+                "\n".join(
+                    (
+                        "[Desktop Entry]",
+                        "Type=Application",
+                        f"Name={APP_NAME}",
+                        "Comment=Route slicer URI schemes to a Python bridge",
+                        "NoDisplay=true",
+                        "Terminal=false",
+                        f"Exec={self.expected_desktop_exec()}",
+                        f"MimeType={mime_types}",
+                        "Categories=Utility;",
+                        "StartupNotify=false",
+                        "",
+                    )
+                ),
                 encoding="utf-8",
             )
         else:
@@ -550,6 +561,7 @@ class WindowsRegistryManager(UriHandlerManager):
         )
         self._resolved_python_command: str | None = None
         import winreg
+
         self.winreg = winreg
 
     @staticmethod
@@ -566,7 +578,7 @@ class WindowsRegistryManager(UriHandlerManager):
         return '"' + value.replace('"', '\\"') + '"'
 
     def expected_command(self) -> str:
-        return f"{self.win_quote(self.resolved_python_command())} -m {HANDLER_MODULE} \"%1\""
+        return f'{self.win_quote(self.resolved_python_command())} -m {HANDLER_MODULE} "%1"'
 
     def resolved_python_command(self) -> str:
         if self._resolved_python_command:
@@ -768,7 +780,7 @@ class MacOSLaunchServicesManager(UriHandlerManager):
             fallback = Path(__file__).with_name(RESOURCE_DIR_NAME) / MACOS_LAUNCHER_TEMPLATE_NAME
             if fallback.is_file():
                 return fallback.read_text(encoding="utf-8")
-            raise FileNotFoundError(f"macOS launcher template not found: {MACOS_LAUNCHER_TEMPLATE_NAME}")
+            raise FileNotFoundError(f"macOS launcher template not found: {MACOS_LAUNCHER_TEMPLATE_NAME}") from None
 
     def expected_applescript_source(self) -> str:
         replacements = {
@@ -862,24 +874,26 @@ class MacOSLaunchServicesManager(UriHandlerManager):
             info = plistlib.load(handle)
 
         schemes = [item.protocol for item in definitions]
-        info.update({
-            "CFBundleName": APP_NAME,
-            "CFBundleDisplayName": APP_NAME,
-            "CFBundleIdentifier": MACOS_BUNDLE_ID,
-            "CFBundleURLTypes": [
-                {
-                    "CFBundleURLName": APP_NAME,
-                    "CFBundleTypeRole": "Viewer",
-                    "CFBundleURLSchemes": schemes,
-                }
-            ],
-            "LSUIElement": True,
-            "NSHighResolutionCapable": True,
-            "SlicerURIBridgePython": self.expected_python(),
-            "SlicerURIBridgeModule": HANDLER_MODULE,
-            "SlicerURIBridgeConfig": str(user_config_path()),
-            "SlicerURIBridgeManagedSchemes": schemes,
-        })
+        info.update(
+            {
+                "CFBundleName": APP_NAME,
+                "CFBundleDisplayName": APP_NAME,
+                "CFBundleIdentifier": MACOS_BUNDLE_ID,
+                "CFBundleURLTypes": [
+                    {
+                        "CFBundleURLName": APP_NAME,
+                        "CFBundleTypeRole": "Viewer",
+                        "CFBundleURLSchemes": schemes,
+                    }
+                ],
+                "LSUIElement": True,
+                "NSHighResolutionCapable": True,
+                "SlicerURIBridgePython": self.expected_python(),
+                "SlicerURIBridgeModule": HANDLER_MODULE,
+                "SlicerURIBridgeConfig": str(user_config_path()),
+                "SlicerURIBridgeManagedSchemes": schemes,
+            }
+        )
 
         with self.info_plist.open("wb") as handle:
             plistlib.dump(info, handle, sort_keys=False)
@@ -945,14 +959,18 @@ class MacOSLaunchServicesManager(UriHandlerManager):
         if not command or not self.app_bundle.exists():
             return
         with contextlib.suppress(OSError):
-            subprocess.run([command, "-f", str(self.app_bundle)], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run(
+                [command, "-f", str(self.app_bundle)], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            )
 
     def unregister_app_bundle(self) -> None:
         command = self.lsregister_command()
         if not command or not self.app_bundle.exists():
             return
         with contextlib.suppress(OSError):
-            subprocess.run([command, "-u", str(self.app_bundle)], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run(
+                [command, "-u", str(self.app_bundle)], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+            )
 
     class _LaunchServices:
         ENCODING_UTF8 = 0x08000100
@@ -1085,7 +1103,9 @@ class MacOSLaunchServicesManager(UriHandlerManager):
                 return handler
         return None
 
-    def repair_unmanaged_defaults(self, managed_definitions: Iterable[ProtocolDef], previous_defaults: dict[str, str | None]) -> None:
+    def repair_unmanaged_defaults(
+        self, managed_definitions: Iterable[ProtocolDef], previous_defaults: dict[str, str | None]
+    ) -> None:
         managed_schemes = {item.protocol for item in managed_definitions}
         for item in PROTOCOLS:
             protocol = item.protocol
@@ -1121,7 +1141,9 @@ class MacOSLaunchServicesManager(UriHandlerManager):
         else:
             display = effective or "<not registered>"
 
-        current = bool(app_claims_scheme and effective_managed and self.command_current(self.current_bridge_definitions()))
+        current = bool(
+            app_claims_scheme and effective_managed and self.command_current(self.current_bridge_definitions())
+        )
         return HandlerState(definition, effective, display, managed, effective_managed, current)
 
     def status_text(self, state: HandlerState) -> str:
@@ -1148,8 +1170,7 @@ class MacOSLaunchServicesManager(UriHandlerManager):
         definitions_before = self.current_bridge_definitions()
         previous_defaults = self.default_handlers_snapshot()
         defaults_that_were_ours = {
-            item.protocol: self.get_default_bundle_id(item.protocol) == MACOS_BUNDLE_ID
-            for item in definitions_before
+            item.protocol: self.get_default_bundle_id(item.protocol) == MACOS_BUNDLE_ID for item in definitions_before
         }
         remaining = [item for item in definitions_before if item.protocol != definition.protocol]
 
@@ -1167,6 +1188,7 @@ class MacOSLaunchServicesManager(UriHandlerManager):
                 if defaults_that_were_ours.get(item.protocol):
                     self.set_default_handler(item.protocol)
 
+
 def make_manager(script_dir: Path, python_command: str | None, dry_run: bool) -> UriHandlerManager:
     if sys.platform == "win32":
         return WindowsRegistryManager(script_dir, python_command, dry_run)
@@ -1181,8 +1203,7 @@ def select_auto(manager: UriHandlerManager, action: str) -> list[ProtocolDef]:
         return [
             state.definition
             for state in states
-            if not state.effective_target
-            or state.definition.protocol == "bambustudioopen"
+            if not state.effective_target or state.definition.protocol == "bambustudioopen"
         ]
     return [state.definition for state in states if state.managed_by_us]
 
@@ -1191,7 +1212,9 @@ def print_statuses(manager: UriHandlerManager, numbered: bool = False) -> None:
     print("Supported URI handlers:")
     for index, state in enumerate((manager.get_state(item) for item in PROTOCOLS), start=1):
         if numbered:
-            print(f"  {index}) {state.definition.protocol:<18} ({state.definition.name:<9}) {manager.status_text(state)}")
+            print(
+                f"  {index}) {state.definition.protocol:<18} ({state.definition.name:<9}) {manager.status_text(state)}"
+            )
         else:
             print(f"  {state.definition.protocol:<18} ({state.definition.name:<9}) {manager.status_text(state)}")
 
@@ -1280,10 +1303,24 @@ def normalize_argv(argv: list[str]) -> list[str]:
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Register or unregister slicer URI handlers on Windows/Linux/macOS.")
     parser.add_argument("items", nargs="*", help="Optional action followed by protocol names or aliases.")
-    parser.add_argument("--register", dest="flag_action", action="store_const", const="register", help="Register selected protocols.")
-    parser.add_argument("--unregister", dest="flag_action", action="store_const", const="unregister", help="Unregister selected protocols.")
-    parser.add_argument("--auto", action="store_true", help="register: protocols without a handler; unregister: protocols handled by us.")
-    parser.add_argument("--python", dest="python_command", help="Python executable used by the registered bridge command.")
+    parser.add_argument(
+        "--register", dest="flag_action", action="store_const", const="register", help="Register selected protocols."
+    )
+    parser.add_argument(
+        "--unregister",
+        dest="flag_action",
+        action="store_const",
+        const="unregister",
+        help="Unregister selected protocols.",
+    )
+    parser.add_argument(
+        "--auto",
+        action="store_true",
+        help="register: protocols without a handler; unregister: protocols handled by us.",
+    )
+    parser.add_argument(
+        "--python", dest="python_command", help="Python executable used by the registered bridge command."
+    )
     parser.add_argument("--dry-run", action="store_true", help="Print changes without writing them.")
     args = parser.parse_args(normalize_argv(argv))
 
@@ -1353,7 +1390,7 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except KeyboardInterrupt:
-        raise SystemExit(0)
+        raise SystemExit(0) from None
     except Exception as exc:
         eprint(f"Error: {exc}")
-        raise SystemExit(1)
+        raise SystemExit(1) from exc

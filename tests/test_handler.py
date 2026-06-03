@@ -18,19 +18,18 @@ from slicer_uri_bridge.handler import (
     choose_filename,
     extract_download,
     filename_from_url,
-    load_config,
+    has_executable_bits,
     is_empty_bambustudioopen_uri,
+    launch_bambu,
+    load_config,
+    main,
     normalize_host,
     normalize_post_process_action,
-    main,
     read_protocol_uri,
-    has_executable_bits,
-    launch_bambu,
     scan_3mf_post_process,
     validate_downloaded_file,
     validate_remote_url,
 )
-
 
 TEMP_ROOT = Path(__file__).resolve().parent / ".tmp"
 
@@ -87,9 +86,7 @@ class BambuEmptyUriTests(unittest.TestCase):
         self.assertTrue(is_empty_bambustudioopen_uri("bambustudioopen:///"))
         self.assertTrue(is_empty_bambustudioopen_uri("bambustudioopen://%20%20"))
         self.assertFalse(
-            is_empty_bambustudioopen_uri(
-                "bambustudioopen://https%3A%2F%2Ffiles.example%2Fmodels%2Fbenchy.3mf"
-            )
+            is_empty_bambustudioopen_uri("bambustudioopen://https%3A%2F%2Ffiles.example%2Fmodels%2Fbenchy.3mf")
         )
         self.assertFalse(is_empty_bambustudioopen_uri("prusaslicer://open?file="))
 
@@ -137,12 +134,8 @@ class MainLoggingTests(unittest.TestCase):
             exit_code = main(["prusaslicer://open?file=%20%20"])
 
         self.assertEqual(exit_code, 1)
-        self.assertTrue(
-            any("Input URI: 'prusaslicer://open?file=%20%20'" in line for line in captured.output)
-        )
-        self.assertTrue(
-            any("Failed: Invalid prusaslicer URI." in line for line in captured.output)
-        )
+        self.assertTrue(any("Input URI: 'prusaslicer://open?file=%20%20'" in line for line in captured.output))
+        self.assertTrue(any("Failed: Invalid prusaslicer URI." in line for line in captured.output))
 
 
 class FilenameTests(unittest.TestCase):
@@ -418,7 +411,8 @@ class ThreeMfPostProcessTests(unittest.TestCase):
     def test_load_config_defaults_post_process_action_to_warn(self) -> None:
         with temporary_directory() as temp_dir:
             config_path = Path(temp_dir) / "config.toml"
-            config_path.write_text("""\
+            config_path.write_text(
+                """\
 [security]
 allow_any_original_host = true
 allowed_extensions = [".3mf"]

@@ -31,7 +31,6 @@ SUPPORTED_QUERY_SCHEMES = {"cura", "crealityprintlink", "prusaslicer", "orcaslic
 USER_AGENT = "OrcaSlicer/2.4.0-dev"
 IS_WINDOWS = sys.platform == "win32"
 IS_MACOS = sys.platform == "darwin"
-IS_LINUX = not IS_WINDOWS and not IS_MACOS
 MAX_REDIRECTS = 5
 MAX_DOWNLOAD_BYTES = 200 * 1024 * 1024
 BUFFER_SIZE = 81920
@@ -60,9 +59,7 @@ class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Open supported slicer-style URIs in local Bambu Studio."
-    )
+    parser = argparse.ArgumentParser(description="Open supported slicer-style URIs in local Bambu Studio.")
     parser.add_argument("uri", nargs="?")
     parser.add_argument("--uri-file", "-UriFile", dest="uri_file")
     return parser.parse_args(argv)
@@ -151,18 +148,17 @@ def load_config() -> dict:
             if not isinstance(extension, str) or not extension.strip():
                 logger.warning(f"Ignoring invalid extension in security.allowed_extensions: {extension!r}")
                 continue
-            
+
             extension = extension.strip().lower()
             if not extension.startswith("."):
                 extension = f".{extension}"
             valid_extensions.append(extension)
 
     security["allowed_extensions"] = valid_extensions
-    if  not security["allowed_extensions"]:
+    if not security["allowed_extensions"]:
         message = "Config value must be a list: security.allowed_extensions"
         logger.error(message)
         raise BridgeError(message)
-
 
     if not isinstance(config.get("bambu_studio"), dict):
         message = "Missing [bambu_studio] in config"
@@ -187,10 +183,10 @@ def read_protocol_uri(uri_file: str) -> str:
 
 def resolve_protocol_uri(args: argparse.Namespace) -> str:
     if args.uri:
-        return args.uri.strip()
+        return str(args.uri).strip()
 
     if args.uri_file:
-        return read_protocol_uri(args.uri_file).strip()
+        return read_protocol_uri(str(args.uri_file)).strip()
 
     raise BridgeError("Missing URI argument.")
 
@@ -303,8 +299,7 @@ def assert_public_host(host: str) -> None:
     for address in addresses:
         if not ipaddress.ip_address(address).is_global:
             raise BridgeError(
-                "Host resolves to a local/private/reserved address and is not allowed: "
-                f"{host} -> {address}"
+                f"Host resolves to a local/private/reserved address and is not allowed: {host} -> {address}"
             )
 
 
@@ -483,9 +478,7 @@ def download_model(
                     while chunk := response.read(BUFFER_SIZE):
                         total += len(chunk)
                         if total > MAX_DOWNLOAD_BYTES:
-                            raise BridgeError(
-                                f"Download exceeded the size limit: {MAX_DOWNLOAD_BYTES} bytes"
-                        )
+                            raise BridgeError(f"Download exceeded the size limit: {MAX_DOWNLOAD_BYTES} bytes")
                         output.write(chunk)
             except Exception:
                 if output_created:
@@ -553,16 +546,9 @@ def post_process_message(path: Path, commands: list[str]) -> str:
     if len(commands) == 1:
         post_process = commands[0]
     else:
-        post_process = "\n\n".join(
-            f"[{index}]\n{command}" for index, command in enumerate(commands, start=1)
-        )
+        post_process = "\n\n".join(f"[{index}]\n{command}" for index, command in enumerate(commands, start=1))
 
-    return (
-        "Downloaded 3MF file contains a post-processing script.\n\n"
-        f"File: {path}\n\n"
-        "post_process:\n"
-        f"{post_process}"
-    )
+    return f"Downloaded 3MF file contains a post-processing script.\n\nFile: {path}\n\npost_process:\n{post_process}"
 
 
 def check_3mf_post_process(path: Path, action: str) -> None:
@@ -624,9 +610,7 @@ def resolve_bambu_command(config: dict) -> list[str]:
     if not resolved:
         if IS_WINDOWS:
             raise BridgeError(f"Bambu Studio executable not found on PATH: {configured_path}")
-        return warn_and_resolve_default_open_command(
-            f"Bambu Studio executable not found on PATH: {configured_path}"
-        )
+        return warn_and_resolve_default_open_command(f"Bambu Studio executable not found on PATH: {configured_path}")
     return [resolved]
 
 

@@ -6,7 +6,15 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from slicer_uri_bridge.config import user_config_dir, user_config_path
-from slicer_uri_bridge.manager import BRIDGE_DISPLAY_TARGET, HandlerState, PROTOCOLS, WindowsRegistryManager, main as manager_main, resolve_protocols, select_auto
+from slicer_uri_bridge.manager import (
+    BRIDGE_DISPLAY_TARGET,
+    PROTOCOLS,
+    HandlerState,
+    WindowsRegistryManager,
+    resolve_protocols,
+    select_auto,
+)
+from slicer_uri_bridge.manager import main as manager_main
 
 
 class FakeManager:
@@ -37,23 +45,27 @@ class ProtocolResolutionTests(unittest.TestCase):
 
 class AutoSelectionTests(unittest.TestCase):
     def test_register_auto_selects_empty_handlers_and_always_bambu(self) -> None:
-        manager = FakeManager({
-            "bambustudioopen": ("vendor.bambu", False),
-            "cura": (None, False),
-            "prusaslicer": ("vendor.prusa", False),
-            "orcaslicer": ("vendor.orca", False),
-            "crealityprintlink": ("vendor.creality", False),
-        })
-        selected = select_auto(manager, "register")
+        manager = FakeManager(
+            {
+                "bambustudioopen": ("vendor.bambu", False),
+                "cura": (None, False),
+                "prusaslicer": ("vendor.prusa", False),
+                "orcaslicer": ("vendor.orca", False),
+                "crealityprintlink": ("vendor.creality", False),
+            }
+        )
+        selected = select_auto(manager, "register")  # type: ignore[arg-type]
         self.assertEqual([item.protocol for item in selected], ["bambustudioopen", "cura"])
 
     def test_unregister_auto_selects_only_our_handlers(self) -> None:
-        manager = FakeManager({
-            "bambustudioopen": ("slicer-uri-bridge", True),
-            "cura": ("vendor.cura", False),
-            "orcaslicer": ("slicer-uri-bridge", True),
-        })
-        selected = select_auto(manager, "unregister")
+        manager = FakeManager(
+            {
+                "bambustudioopen": ("slicer-uri-bridge", True),
+                "cura": ("vendor.cura", False),
+                "orcaslicer": ("slicer-uri-bridge", True),
+            }
+        )
+        selected = select_auto(manager, "unregister")  # type: ignore[arg-type]
         self.assertEqual([item.protocol for item in selected], ["bambustudioopen", "orcaslicer"])
 
 
@@ -88,7 +100,9 @@ class ConfigPathTests(unittest.TestCase):
 
 class StatusDisplayTests(unittest.TestCase):
     def test_windows_managed_package_handler_hides_python_path(self) -> None:
-        command = r'"C:\Users\Alice\AppData\Local\Programs\Python\Python313\pythonw.exe" -m slicer_uri_bridge.handler "%1"'
+        command = (
+            r'"C:\Users\Alice\AppData\Local\Programs\Python\Python313\pythonw.exe" -m slicer_uri_bridge.handler "%1"'
+        )
 
         class FakeWindowsManager(WindowsRegistryManager):
             def current_user_command(self, protocol: str) -> str | None:
@@ -130,7 +144,7 @@ class WindowsRegistryDeleteSafetyTests(unittest.TestCase):
 
     def make_manager(self) -> WindowsRegistryManager:
         manager = object.__new__(WindowsRegistryManager)
-        manager.winreg = self.FakeWinReg()
+        manager.winreg = self.FakeWinReg()  # type: ignore[assignment]
         manager.dry_run = False
         return manager
 
@@ -152,8 +166,8 @@ class WindowsRegistryDeleteSafetyTests(unittest.TestCase):
 
     def test_remove_handler_skips_registry_delete_for_unmanaged_command(self) -> None:
         manager = self.make_manager()
-        manager.current_user_command = Mock(return_value=r"C:\Vendor\App.exe")
-        manager.delete_handler_registration = Mock()
+        manager.current_user_command = Mock(return_value=r"C:\Vendor\App.exe")  # type: ignore[method-assign]
+        manager.delete_handler_registration = Mock()  # type: ignore[method-assign]
 
         manager.remove_handler(PROTOCOLS[0])
 

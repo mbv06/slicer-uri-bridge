@@ -5,14 +5,13 @@ import subprocess
 import sys
 import unittest
 import uuid
-from io import StringIO
 from collections.abc import Iterator
 from contextlib import contextmanager
+from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 
 from slicer_uri_bridge import cli
-
 
 TEMP_ROOT = Path(__file__).resolve().parent / ".tmp"
 
@@ -120,7 +119,7 @@ class InteractiveOnboardingTests(unittest.TestCase):
         with temporary_directory() as temp_dir:
             config_path = temp_dir / "config.toml"
             config_path.write_text(
-                "[bambu_studio]\nlinux = \"MissingBambuStudio.AppImage\"\n",
+                '[bambu_studio]\nlinux = "MissingBambuStudio.AppImage"\n',
                 encoding="utf-8",
             )
 
@@ -165,7 +164,7 @@ class InteractiveOnboardingTests(unittest.TestCase):
         with temporary_directory() as temp_dir:
             config_path = temp_dir / "config.toml"
             config_path.write_text(
-                "[bambu_studio]\nlinux = \"MissingBambuStudio.AppImage\"\n",
+                '[bambu_studio]\nlinux = "MissingBambuStudio.AppImage"\n',
                 encoding="utf-8",
             )
 
@@ -200,7 +199,10 @@ class InteractiveOnboardingTests(unittest.TestCase):
         with (
             patch("slicer_uri_bridge.cli.IS_WINDOWS", False),
             patch("slicer_uri_bridge.cli.IS_MACOS", False),
-            patch("slicer_uri_bridge.cli.shutil.which", side_effect=lambda name: f"/usr/bin/{name}" if name == "xdg-open" else None),
+            patch(
+                "slicer_uri_bridge.cli.shutil.which",
+                side_effect=lambda name: f"/usr/bin/{name}" if name == "xdg-open" else None,
+            ),
             patch("slicer_uri_bridge.cli.subprocess.Popen") as popen,
         ):
             cli.open_system_uri(cli.TEST_URI)

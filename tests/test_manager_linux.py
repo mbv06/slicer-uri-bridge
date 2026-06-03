@@ -9,7 +9,6 @@ from pathlib import Path
 
 from slicer_uri_bridge.manager import DESKTOP_ID, LinuxXdgManager
 
-
 TEMP_ROOT = Path(__file__).resolve().parent / ".tmp"
 
 

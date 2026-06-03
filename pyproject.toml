@@ -28,3 +28,38 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 slicer_uri_bridge = ["resources/default_config.toml", "resources/macos-launcher.applescript"]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "SIM", # flake8-simplify
+]
+ignore = [
+    "SIM102", # nested if statements
+    "SIM108", # use ternary operator
+    "SIM117", # nested with statements
+]
+
+
+[project.optional-dependencies]
+dev = [
+    "mypy>=2.1.0",
+    "ruff>=0.15.15",
+]
+
+[tool.mypy]
+python_version = "3.11"
+check_untyped_defs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_return_any = true
+files = ["src", "tests"]

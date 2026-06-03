@@ -18,7 +18,6 @@ from slicer_uri_bridge.manager import (
     resolve_protocols,
 )
 
-
 TEMP_ROOT = Path(__file__).resolve().parent / ".tmp"
 
 
@@ -117,6 +116,7 @@ class MacOSPlistAndStateTests(unittest.TestCase):
 
     def test_status_displays_app_bundle_not_inner_python_details(self) -> None:
         with temporary_directory() as temp_dir:
+
             class FakeMacOSManager(MacOSLaunchServicesManager):
                 def get_default_bundle_id(self, protocol: str) -> str | None:
                     return MACOS_BUNDLE_ID if protocol == "bambustudioopen" else None
@@ -192,13 +192,13 @@ class MacOSDefaultRestoreTests(unittest.TestCase):
             )
 
             class FakeMacOSManager(MacOSLaunchServicesManager):
-                def launch_services(self) -> FakeLaunchServices:
+                def launch_services(self) -> FakeLaunchServices:  # type: ignore[override]
                     return services
 
             with patch.dict(os.environ, {"URI_BRIDGE_MACOS_APP_DIR": str(temp_dir / "Applications")}):
                 manager = FakeMacOSManager(temp_dir / "project", sys.executable, False)
 
-            previous_defaults = {
+            previous_defaults: dict[str, str | None] = {
                 "bambustudioopen": MACOS_BUNDLE_ID,
                 "cura": "nl.ultimaker.cura_UltiMaker_Cura",
             }
@@ -213,6 +213,7 @@ class MacOSDefaultRestoreTests(unittest.TestCase):
 class MacOSOsacompileIntegrationTests(unittest.TestCase):
     def test_write_bridge_app_builds_real_applescript_bundle(self) -> None:
         with temporary_directory() as temp_dir:
+
             class NoLaunchServicesRegistration(MacOSLaunchServicesManager):
                 def require_user_config(self) -> None:
                     return None
