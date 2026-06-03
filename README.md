@@ -4,6 +4,7 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](https://opensource.org/licenses/MIT)
 [![Platform: Windows | macOS | Linux](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)]()
+[![Tests](https://img.shields.io/github/actions/workflow/status/mbv06/slicer-uri-bridge/ci.yml?label=tests)](https://github.com/mbv06/slicer-uri-bridge/actions/workflows/ci.yml)
 
 [Installation](#installation) · [Security Model](#security-model) · [Changelog](CHANGELOG.md)
 
@@ -58,7 +59,7 @@ First, install Python 3.11 or newer on the target system:
 Then install the package from GitHub:
 
 ```bash
-python -m pip install https://github.com/mbv06/slicer-uri-bridge/archive/refs/heads/main.zip
+python -m pip install --upgrade https://github.com/mbv06/slicer-uri-bridge/archive/refs/heads/main.zip
 ```
 
 Installation only installs the CLI and Python package. It does not register URI handlers automatically.
@@ -92,22 +93,30 @@ slicer-uri-bridge status
 
 ## Uninstall
 
-Unregister all URI handlers managed by this package:
+First, unregister all URI handlers managed by this package:
 
 ```bash
 slicer-uri-bridge unregister --auto
 ```
 
-You can also delete the config and log files manually. Find their location with:
+Then remove the installed package or app files for your installation type.
+
+Manual install:
 
 ```bash
-slicer-uri-bridge config-path
+python -m pip uninstall slicer-uri-bridge
 ```
 
-Then remove the package:
+Automatic Windows install:
+
+```powershell
+Remove-Item -LiteralPath (Join-Path $env:LOCALAPPDATA 'slicer-uri-bridge') -Recurse -Force
+```
+
+Automatic macOS install:
 
 ```bash
-pip uninstall slicer-uri-bridge
+rm -rf "$HOME/.local/share/slicer-uri-bridge" "$HOME/Applications/SlicerURIBridge.app"; rm -f "$HOME/.local/bin/slicer-uri-bridge"
 ```
 
 ## How It Works
@@ -133,7 +142,7 @@ The bridge validates downloads before opening them:
 
 * only HTTPS URLs are allowed unless `allow_plain_http = true`
 * URLs with embedded credentials are rejected
-* resolved hosts must not point to local/private/reserved addresses
+* resolved hosts must not point to local/private/reserved addresses unless `allow_local_resolved_hosts = true`
 * redirect targets are revalidated
 * downloaded files must use an allowed model extension
 * empty files and obvious executable formats are refused

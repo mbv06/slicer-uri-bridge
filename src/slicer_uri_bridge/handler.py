@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import ipaddress
 import json
 import logging
@@ -122,6 +123,10 @@ def load_config() -> dict:
         logger.warning("Invalid security.allow_any_original_host; using false")
         security["allow_any_original_host"] = False
 
+    if not isinstance(security.get("allow_local_resolved_hosts", False), bool):
+        logger.warning("Invalid security.allow_local_resolved_hosts; using false")
+        security["allow_local_resolved_hosts"] = False
+
     security["post_process_action"] = normalize_post_process_action(security.get("post_process_action"))
 
     allowed_hosts = security.get("allowed_hosts", [])
@@ -176,10 +181,8 @@ def read_protocol_uri(uri_file: str) -> str:
             return data.decode("utf-16").strip()
         return data.decode("utf-8-sig").strip()
     finally:
-        try:
+        with contextlib.suppress(OSError):
             path.unlink()
-        except OSError:
-            pass
 
 
 def resolve_protocol_uri(args: argparse.Namespace) -> str:
@@ -312,6 +315,7 @@ def validate_remote_url(
     allow_any_original_host: bool,
     allow_plain_http: bool,
     check_allowlist: bool,
+    allow_local_resolved_hosts: bool,
 ) -> None:
     parsed = urllib.parse.urlsplit(url)
     if not parsed.scheme or not parsed.netloc:
@@ -331,7 +335,8 @@ def validate_remote_url(
         if normalize_host(host) not in allowed_hosts:
             raise BridgeError(f"Download host is not allow-listed: {host}")
 
-    assert_public_host(host)
+    if not allow_local_resolved_hosts or not check_allowlist:
+        assert_public_host(host)
 
 
 def download_folder_from_config(config: dict) -> Path | None:
@@ -410,6 +415,7 @@ def download_model(
     allowed_hosts: set[str],
     allow_any_original_host: bool,
     allow_plain_http: bool,
+    allow_local_resolved_hosts: bool,
 ) -> Path:
     opener = urllib.request.build_opener(NoRedirectHandler())
     current_url = initial_url
@@ -422,6 +428,7 @@ def download_model(
             allow_any_original_host=allow_any_original_host,
             allow_plain_http=allow_plain_http,
             check_allowlist=redirect_index == 0,
+            allow_local_resolved_hosts=allow_local_resolved_hosts,
         )
 
         request = urllib.request.Request(
@@ -482,15 +489,11 @@ def download_model(
                         output.write(chunk)
             except Exception:
                 if output_created:
-                    try:
+                    with contextlib.suppress(OSError):
                         destination.unlink()
-                    except OSError:
-                        pass
                 if download_folder is None:
-                    try:
+                    with contextlib.suppress(OSError):
                         destination.parent.rmdir()
-                    except OSError:
-                        pass
                 raise
 
             logger.info(f"Downloaded {total} bytes to {destination}")
@@ -670,7 +673,7 @@ def launch_bambu(command: list[str], model_path: Path) -> None:
 
 def show_message(message: str, kind: str) -> None:
     print(message, file=sys.stderr)
-    try:
+    with contextlib.suppress(Exception):
         import tkinter
         from tkinter import messagebox
 
@@ -678,8 +681,6 @@ def show_message(message: str, kind: str) -> None:
         root.withdraw()
         getattr(messagebox, kind)("Slicer URI Bridge", message)
         root.destroy()
-    except Exception:
-        pass
 
 
 def show_error(message: str) -> None:
@@ -701,6 +702,7 @@ def main(argv: list[str] | None = None) -> int:
         config = load_config()
         security = config["security"]
         allow_plain_http = security.get("allow_plain_http", False)
+        allow_local_resolved_hosts = security.get("allow_local_resolved_hosts", False)
         allowed_extensions = security["allowed_extensions"]
         download_folder = download_folder_from_config(config)
 
@@ -722,6 +724,7 @@ def main(argv: list[str] | None = None) -> int:
             allow_any_original_host=allow_any_original_host,
             allow_plain_http=allow_plain_http,
             check_allowlist=True,
+            allow_local_resolved_hosts=allow_local_resolved_hosts,
         )
 
         command = resolve_bambu_command(config)
@@ -734,6 +737,7 @@ def main(argv: list[str] | None = None) -> int:
             allowed_hosts=allowed_hosts,
             allow_any_original_host=allow_any_original_host,
             allow_plain_http=allow_plain_http,
+            allow_local_resolved_hosts=allow_local_resolved_hosts,
         )
         validate_downloaded_file(local_path)
         check_3mf_post_process(local_path, security["post_process_action"])
@@ -744,15 +748,11 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:
         logger.error(f"Failed: {exc}")
         if local_path:
-            try:
+            with contextlib.suppress(OSError):
                 local_path.unlink()
-            except OSError:
-                pass
             if download_folder is None:
-                try:
+                with contextlib.suppress(OSError):
                     local_path.parent.rmdir()
-                except OSError:
-                    pass
         show_error(str(exc))
         return 1
 

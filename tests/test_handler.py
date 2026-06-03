@@ -213,6 +213,7 @@ class RemoteUrlValidationTests(unittest.TestCase):
                 allow_any_original_host=False,
                 allow_plain_http=False,
                 check_allowlist=True,
+                allow_local_resolved_hosts=False,
             )
 
         assert_public_host.assert_called_once_with("files.example")
@@ -225,6 +226,7 @@ class RemoteUrlValidationTests(unittest.TestCase):
                 allow_any_original_host=False,
                 allow_plain_http=False,
                 check_allowlist=True,
+                allow_local_resolved_hosts=False,
             )
 
     def test_validate_remote_url_rejects_embedded_credentials(self) -> None:
@@ -235,6 +237,7 @@ class RemoteUrlValidationTests(unittest.TestCase):
                 allow_any_original_host=False,
                 allow_plain_http=False,
                 check_allowlist=True,
+                allow_local_resolved_hosts=False,
             )
 
     def test_validate_remote_url_skips_allowlist_for_redirect_targets(self) -> None:
@@ -245,9 +248,36 @@ class RemoteUrlValidationTests(unittest.TestCase):
                 allow_any_original_host=False,
                 allow_plain_http=False,
                 check_allowlist=False,
+                allow_local_resolved_hosts=False,
             )
 
         assert_public_host.assert_called_once_with("cdn.example")
+
+    def test_validate_remote_url_can_allow_local_resolved_hosts(self) -> None:
+        with patch("slicer_uri_bridge.handler.assert_public_host") as assert_public_host:
+            validate_remote_url(
+                "https://localhost/model.3mf",
+                allowed_hosts={"localhost"},
+                allow_any_original_host=False,
+                allow_plain_http=False,
+                check_allowlist=True,
+                allow_local_resolved_hosts=True,
+            )
+
+        assert_public_host.assert_not_called()
+
+    def test_validate_remote_url_still_checks_redirect_targets_when_local_hosts_are_allowed(self) -> None:
+        with patch("slicer_uri_bridge.handler.assert_public_host") as assert_public_host:
+            validate_remote_url(
+                "https://127.0.0.1/model.3mf",
+                allowed_hosts={"files.example"},
+                allow_any_original_host=False,
+                allow_plain_http=False,
+                check_allowlist=False,
+                allow_local_resolved_hosts=True,
+            )
+
+        assert_public_host.assert_called_once_with("127.0.0.1")
 
 
 class FileValidationTests(unittest.TestCase):
@@ -402,6 +432,7 @@ allowed_extensions = [".3mf"]
                 config = load_config()
 
         self.assertEqual(config["security"]["post_process_action"], "warn")
+        self.assertFalse(config["security"].get("allow_local_resolved_hosts", False))
 
 
 class ProtocolFileTests(unittest.TestCase):

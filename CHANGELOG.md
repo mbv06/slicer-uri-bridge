@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here.
 
+## v0.1.3 - 2026-06-03
+
+### Added
+
+- Add `allow_local_resolved_hosts` as a security setting for cases where you intentionally want to allow downloads from trusted hosts that resolve to local addresses.
+
 ## v0.1.2 - 2026-05-20
 
 ### Added

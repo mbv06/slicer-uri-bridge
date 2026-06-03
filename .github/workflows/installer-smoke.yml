@@ -1,0 +1,102 @@
+name: Installer Smoke
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "install-macos.sh"
+      - "install-windows.ps1"
+      - "pyproject.toml"
+      - "setup.py"
+      - "README.md"
+      - "src/**"
+      - ".github/workflows/installer-smoke.yml"
+  pull_request:
+    paths:
+      - "install-macos.sh"
+      - "install-windows.ps1"
+      - "pyproject.toml"
+      - "setup.py"
+      - "README.md"
+      - "src/**"
+      - ".github/workflows/installer-smoke.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  macos-installer:
+    name: macOS installer
+    runs-on: macos-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Run installer
+        env:
+          SLICER_URI_BRIDGE_PROJECT_SPEC: ${{ github.workspace }}
+          HOME: ${{ runner.temp }}/home
+          XDG_CONFIG_HOME: ${{ runner.temp }}/xdg-config
+          URI_BRIDGE_MACOS_APP_DIR: ${{ runner.temp }}/Applications
+        run: |
+          mkdir -p "$HOME" "$XDG_CONFIG_HOME" "$URI_BRIDGE_MACOS_APP_DIR"
+          bash install-macos.sh
+
+      - name: Verify installation
+        env:
+          HOME: ${{ runner.temp }}/home
+          XDG_CONFIG_HOME: ${{ runner.temp }}/xdg-config
+          URI_BRIDGE_MACOS_APP_DIR: ${{ runner.temp }}/Applications
+        run: |
+          export PATH="$HOME/.local/bin:$PATH"
+          command -v slicer-uri-bridge
+          slicer-uri-bridge --version
+          slicer-uri-bridge status
+          test -f "$URI_BRIDGE_MACOS_APP_DIR/SlicerURIBridge.app/Contents/Info.plist"
+
+  windows-installer:
+    name: Windows installer
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Run installer
+        shell: powershell
+        env:
+          SLICER_URI_BRIDGE_PROJECT_SPEC: ${{ github.workspace }}
+          LOCALAPPDATA: ${{ runner.temp }}\LocalAppData
+          APPDATA: ${{ runner.temp }}\AppData
+        run: .\install-windows.ps1
+
+      - name: Verify installation
+        shell: powershell
+        env:
+          LOCALAPPDATA: ${{ runner.temp }}\LocalAppData
+          APPDATA: ${{ runner.temp }}\AppData
+        run: |
+          $bridge = Join-Path $env:LOCALAPPDATA 'slicer-uri-bridge\venv\Scripts\slicer-uri-bridge.exe'
+          if (-not (Test-Path -LiteralPath $bridge)) {
+              throw "Bridge command was not installed: $bridge"
+          }
+
+          & $bridge --version
+          & $bridge status
+
+          $command = (Get-Item -LiteralPath 'HKCU:\Software\Classes\bambustudioopen\shell\open\command').GetValue('')
+          if ($command -notmatch 'slicer_uri_bridge\.handler') {
+              throw "Unexpected bambustudioopen handler command: $command"
+          }

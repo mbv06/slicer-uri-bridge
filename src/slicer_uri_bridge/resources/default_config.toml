@@ -3,6 +3,7 @@
 [security]
 allow_plain_http = false
 allow_any_original_host = true
+allow_local_resolved_hosts = false
 allowed_extensions = [".3mf", ".stl", ".step", ".stp", ".obj"]
 # 3MF files can contain Bambu/Orca post-processing commands.
 # Values: "ignore", "warn" (show a warning and open), or "block" (refuse to open).

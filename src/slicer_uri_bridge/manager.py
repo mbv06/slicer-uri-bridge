@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import importlib.resources
 import importlib.util
 import os
@@ -378,19 +379,15 @@ class LinuxXdgManager(UriHandlerManager):
         command = shutil.which("update-desktop-database")
         if not command:
             return
-        try:
+        with contextlib.suppress(OSError):
             subprocess.run([command, str(self.applications_dir)], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except OSError:
-            pass
 
     def apply_xdg_default(self, mime: str) -> None:
         command = shutil.which("xdg-mime")
         if not command:
             return
-        try:
+        with contextlib.suppress(OSError):
             subprocess.run([command, "default", DESKTOP_ID, mime], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except OSError:
-            pass
 
     def write_bridge_files(self, definitions: Iterable[ProtocolDef]) -> None:
         self.check_expected_runtime()
@@ -686,10 +683,8 @@ class WindowsRegistryManager(UriHandlerManager):
     def delete_expected_key(self, root, path: str, root_path: str) -> None:  # noqa: ANN001 - winreg root type is platform-only
         if not self.safe_delete_path(root, path, root_path):
             return
-        try:
+        with contextlib.suppress(OSError):
             self.winreg.DeleteKey(root, path)
-        except OSError:
-            pass
 
     def safe_delete_path(self, root, path: str, root_path: str) -> bool:  # noqa: ANN001 - winreg root type is platform-only
         if root != self.winreg.HKEY_CURRENT_USER:
@@ -949,19 +944,15 @@ class MacOSLaunchServicesManager(UriHandlerManager):
         command = self.lsregister_command()
         if not command or not self.app_bundle.exists():
             return
-        try:
+        with contextlib.suppress(OSError):
             subprocess.run([command, "-f", str(self.app_bundle)], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except OSError:
-            pass
 
     def unregister_app_bundle(self) -> None:
         command = self.lsregister_command()
         if not command or not self.app_bundle.exists():
             return
-        try:
+        with contextlib.suppress(OSError):
             subprocess.run([command, "-u", str(self.app_bundle)], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except OSError:
-            pass
 
     class _LaunchServices:
         ENCODING_UTF8 = 0x08000100

@@ -21,7 +21,8 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$ProjectSpec = 'https://github.com/mbv06/slicer-uri-bridge/archive/refs/heads/main.zip'
+$DefaultProjectSpec = 'https://github.com/mbv06/slicer-uri-bridge/archive/refs/heads/main.zip'
+$ProjectSpec = if ($env:SLICER_URI_BRIDGE_PROJECT_SPEC) { $env:SLICER_URI_BRIDGE_PROJECT_SPEC } else { $DefaultProjectSpec }
 $AppHome     = Join-Path $env:LOCALAPPDATA 'slicer-uri-bridge'
 $VenvDir     = Join-Path $AppHome 'venv'
 $ScriptsDir  = Join-Path $VenvDir 'Scripts'

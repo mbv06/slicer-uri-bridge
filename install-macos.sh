@@ -15,7 +15,7 @@ set -euo pipefail
 #
 # To update later, run this installer again.
 
-PROJECT_SPEC="https://github.com/mbv06/slicer-uri-bridge/archive/refs/heads/main.zip"
+PROJECT_SPEC="${SLICER_URI_BRIDGE_PROJECT_SPEC:-https://github.com/mbv06/slicer-uri-bridge/archive/refs/heads/main.zip}"
 
 APP_HOME="${HOME}/.local/share/slicer-uri-bridge"
 VENV="${APP_HOME}/venv"
