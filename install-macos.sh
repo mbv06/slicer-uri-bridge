@@ -40,7 +40,7 @@ die() {
 }
 
 case "$RELEASE_TAG" in
-  latest|v[0-9][0-9A-Za-z.-]*) ;;
+  latest|dev|v[0-9][0-9A-Za-z.-]*) ;;
   *)
     die "Refusing unsafe SLICER_URI_BRIDGE_VERSION: $RELEASE_TAG"
     ;;

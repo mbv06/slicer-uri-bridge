@@ -25,7 +25,7 @@ $ReleaseTag = 'latest'
 if ($env:SLICER_URI_BRIDGE_VERSION -and $env:SLICER_URI_BRIDGE_VERSION.Trim()) {
     $ReleaseTag = $env:SLICER_URI_BRIDGE_VERSION.Trim()
 }
-if ($ReleaseTag -notmatch '^(latest|v[0-9][0-9A-Za-z.-]*)$') {
+if ($ReleaseTag -notmatch '^(latest|dev|v[0-9][0-9A-Za-z.-]*)$') {
     throw "Refusing unsafe SLICER_URI_BRIDGE_VERSION: $ReleaseTag"
 }
 

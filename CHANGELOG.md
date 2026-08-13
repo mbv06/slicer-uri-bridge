@@ -12,6 +12,7 @@ All notable changes to this project are documented here.
 - Add config upgrade on `init-config`: missing options from the bundled template are added to an existing `config.toml` without overwriting current values.
 - Use `tomlkit` to edit `config.toml` while preserving comments and layout. The dependency is pinned to `0.15.1` in `pyproject.toml`, with SHA256 hashes in `requirements.lock`.
 - Publish GitHub Releases with a versioned sdist, a zip that includes `requirements.lock`, and installers pinned to that tag. The installers unpack the zip and install hashed dependencies before the package.
+- Add a `dev` prerelease channel with a stable install URL for test builds, without affecting the latest stable release.
 
 
 ## v0.1.3 - 2026-06-03

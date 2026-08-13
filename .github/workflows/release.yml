@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -19,31 +20,39 @@ jobs:
         env:
           REF: ${{ github.ref }}
           REF_NAME: ${{ github.ref_name }}
+          EVENT: ${{ github.event_name }}
         run: |
           set -euo pipefail
-          if [[ "$REF" != refs/tags/v* ]]; then
-            echo "Stable releases need a v* tag." >&2
-            exit 1
-          fi
-          release_tag="$REF_NAME"
-          if [[ ! "$release_tag" =~ ^v[0-9][0-9A-Za-z.-]*$ ]]; then
-            echo "Refusing unsafe release tag: $release_tag" >&2
-            exit 1
-          fi
-          if [[ "$release_tag" == *-* ]]; then
+          if [[ "$REF" == refs/tags/v* ]]; then
+            release_tag="$REF_NAME"
+            release_name="$REF_NAME"
+            if [[ "$release_tag" == *-* ]]; then
+              prerelease=true
+              make_latest=false
+            else
+              prerelease=false
+              make_latest=true
+            fi
+          elif [[ "$EVENT" == workflow_dispatch && "$REF_NAME" == dev ]]; then
+            release_tag=dev
+            release_name=Dev
             prerelease=true
             make_latest=false
           else
-            prerelease=false
-            make_latest=true
+            echo "Stable releases need a v* tag. Dev releases: run this workflow from the 'dev' branch." >&2
+            exit 1
+          fi
+          if [[ ! "$release_tag" =~ ^(dev|v[0-9][0-9A-Za-z.-]*)$ ]]; then
+            echo "Refusing unsafe release tag: $release_tag" >&2
+            exit 1
           fi
           {
             echo "release_tag=$release_tag"
-            echo "release_name=$release_tag"
+            echo "release_name=$release_name"
             echo "prerelease=$prerelease"
             echo "make_latest=$make_latest"
           } >> "$GITHUB_OUTPUT"
-          echo "Publishing $release_tag (prerelease=$prerelease, make_latest=$make_latest)"
+          echo "Publishing $release_name (tag=$release_tag, prerelease=$prerelease, make_latest=$make_latest)"
 
       - uses: actions/setup-python@v5
         with:
@@ -60,6 +69,9 @@ jobs:
           from pathlib import Path
 
           tag = os.environ["RELEASE_TAG"]
+          if tag == "dev":
+              print("Skipping version check for rolling dev release")
+              raise SystemExit(0)
           text = Path("pyproject.toml").read_text(encoding="utf-8")
           match = re.search(r'(?m)^version = "([^"]+)"$', text)
           if match is None:
@@ -136,10 +148,13 @@ jobs:
           set -euo pipefail
           tag="$RELEASE_TAG"
           python - "$tag" <<'PY'
+          import re
           import sys
           from pathlib import Path
 
           tag = sys.argv[1]
+          if tag != "dev" and not re.fullmatch(r"v[0-9][0-9A-Za-z.-]*", tag):
+              raise SystemExit(f"Refusing to pin installers to unsafe release tag: {tag}")
           replacements = {
               Path("install-windows.ps1"): ("$ReleaseTag = 'latest'", f"$ReleaseTag = '{tag}'"),
               Path("install-macos.sh"): ('RELEASE_TAG="latest"', f'RELEASE_TAG="{tag}"'),
@@ -154,6 +169,23 @@ jobs:
               print(f"Pinned {path} to {tag}")
           PY
 
+      - name: Move rolling dev tag
+        if: steps.meta.outputs.release_tag == 'dev'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh api "repos/${GITHUB_REPOSITORY}/git/refs/tags/dev" >/dev/null 2>&1; then
+            gh api --method PATCH "repos/${GITHUB_REPOSITORY}/git/refs/tags/dev" \
+              -f sha="${GITHUB_SHA}" \
+              -F force=true
+          else
+            gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
+              -f ref='refs/tags/dev' \
+              -f sha="${GITHUB_SHA}"
+          fi
+          echo "refs/tags/dev -> ${GITHUB_SHA}"
+
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.meta.outputs.release_tag }}
@@ -162,6 +194,7 @@ jobs:
           draft: false
           prerelease: ${{ steps.meta.outputs.prerelease == 'true' }}
           make_latest: ${{ steps.meta.outputs.make_latest }}
+          overwrite_files: true
           generate_release_notes: true
           files: |
             dist/slicer-uri-bridge-python.tar.gz
