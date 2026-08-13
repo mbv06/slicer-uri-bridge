@@ -4,10 +4,12 @@ import stat
 import tomllib
 import unittest
 import uuid
+from collections import UserDict
 from pathlib import Path
 from unittest.mock import patch
 
 from slicer_uri_bridge.config import (
+    _leaf_paths,
     default_config_text,
     init_user_config,
     upgrade_config_text,
@@ -133,6 +135,11 @@ linux = "c"
         self.assertIn("[security]", updated)
         self.assertIn("allow_printables_bundle = true", updated)
 
+    def test_leaf_paths_walks_mapping_that_is_not_a_dict(self) -> None:
+        node: UserDict[str, object] = UserDict({"security": UserDict({"allow_plain_http": False})})
+        self.assertNotIsInstance(node, dict)
+        self.assertEqual(_leaf_paths(node, ()), ["security.allow_plain_http"])
+
     def test_does_not_merge_list_values(self) -> None:
         user = """[security]
 allow_plain_http = false
@@ -251,6 +258,12 @@ class UpgradeUserConfigTests(unittest.TestCase):
         self.assertEqual(path.read_text(encoding="utf-8"), default_config_text())
         self.assertEqual(path.stat().st_mtime_ns, mtime)
         self.assertFalse(path.with_name(f"{path.name}.bak").exists())
+
+    def test_empty_file_is_replaced_with_default(self) -> None:
+        path = write_temp_config(" \n")
+        added = upgrade_user_config(path)
+        self.assertIn("security.allow_plain_http", added)
+        self.assertEqual(path.read_text(encoding="utf-8"), default_config_text())
 
     def test_preserves_original_file_mode(self) -> None:
         path = write_temp_config(
