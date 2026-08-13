@@ -22,7 +22,7 @@ It registers URI handlers for other slicers (PrusaSlicer, OrcaSlicer, Cura, and 
 Open PowerShell and run:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -c "iwr -useb https://github.com/mbv06/slicer-uri-bridge/releases/latest/download/install-windows.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c "iwr -useb https://github.com/mbv06/slicer-uri-bridge/releases/latest/download/install-windows.ps1 -OutFile ([IO.Path]::GetTempPath()+'slicer-uri-bridge-install.ps1'); & ([IO.Path]::GetTempPath()+'slicer-uri-bridge-install.ps1')"
 ```
 
 The installer creates a private virtual environment in `%LOCALAPPDATA%\slicer-uri-bridge`, installs or upgrades the package there, adds the Scripts directory to the user `PATH`, initializes or upgrades config if needed, and registers URI handlers.
