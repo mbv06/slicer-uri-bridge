@@ -48,8 +48,15 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    init_config = subparsers.add_parser("init-config", help="Create the user config.toml from the default template.")
-    init_config.add_argument("--force", action="store_true", help="Overwrite an existing user config.toml.")
+    init_config = subparsers.add_parser(
+        "init-config",
+        help="Create the user config.toml, or add missing options to an existing config.",
+    )
+    init_config.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite an existing user config.toml with the bundled default.",
+    )
 
     subparsers.add_parser("config-path", help="Print the active user config.toml path.")
 
@@ -145,17 +152,16 @@ def interactive_onboarding() -> int:
         if not ask_yes_no("Create it from the bundled default config and continue?", default=True):
             print("Setup cancelled. No changes were made.")
             return 0
-        path, _ = init_user_config(force=False)
+        path, _, _ = init_user_config(force=False)
         print(f"Created config: {path}")
-    elif not config_matches_default(config_path):
-        print("Your config differs from the bundled default template.")
-        if ask_yes_no("Replace your config with the bundled default?", default=False):
-            path, _ = init_user_config(force=True)
-            print(f"Replaced config: {path}")
+    else:
+        path, _, added = init_user_config(force=False)
+        if added:
+            print(f"Added missing config options: {', '.join(added)}")
+        elif config_matches_default(config_path):
+            print("Config already exists and matches the bundled default.")
         else:
             print("Keeping your existing config.")
-    else:
-        print("Config already exists and matches the bundled default.")
 
     warn_if_bambu_target_missing(config_path)
     result = manager_main([])
@@ -217,8 +223,14 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         if args.command == "init-config":
-            path, created = init_user_config(force=args.force)
-            print(f"{'Created' if created else 'Config already exists'}: {path}")
+            path, created, added = init_user_config(force=args.force)
+            if created:
+                print(f"Created: {path}")
+            elif added:
+                print(f"Updated config: {path}")
+                print("Added missing options: " + ", ".join(added))
+            else:
+                print(f"Config already exists: {path}")
             warn_if_bambu_target_missing(path)
             return 0
 

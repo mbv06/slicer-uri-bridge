@@ -5,6 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](https://opensource.org/licenses/MIT)
 [![Platform: Windows | macOS | Linux](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg)]()
 [![Tests](https://img.shields.io/github/actions/workflow/status/mbv06/slicer-uri-bridge/ci.yml?label=tests)](https://github.com/mbv06/slicer-uri-bridge/actions/workflows/ci.yml)
+[![Latest Release](https://img.shields.io/github/v/release/mbv06/slicer-uri-bridge?logo=github)](https://github.com/mbv06/slicer-uri-bridge/releases/latest)
 
 [Installation](#installation) · [Security Model](#security-model) · [Changelog](CHANGELOG.md)
 
@@ -21,10 +22,12 @@ It registers URI handlers for other slicers (PrusaSlicer, OrcaSlicer, Cura, and 
 Open PowerShell and run:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -c "iwr -useb https://raw.githubusercontent.com/mbv06/slicer-uri-bridge/main/install-windows.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c "iwr -useb https://github.com/mbv06/slicer-uri-bridge/releases/latest/download/install-windows.ps1 | iex"
 ```
 
-The installer creates a private virtual environment in `%LOCALAPPDATA%\slicer-uri-bridge`, installs or upgrades the package there, adds the Scripts directory to the user `PATH`, initializes config if needed, and registers URI handlers.
+The installer creates a private virtual environment in `%LOCALAPPDATA%\slicer-uri-bridge`, installs or upgrades the package there, adds the Scripts directory to the user `PATH`, initializes or upgrades config if needed, and registers URI handlers.
+
+To install a specific version, download that release's `install-windows.ps1` or set `SLICER_URI_BRIDGE_VERSION=v0.1.4`.
 
 After installation, open a new terminal window if the command is not found, then test the registered handler by opening a known Benchy model URI:
 
@@ -37,10 +40,12 @@ slicer-uri-bridge test
 Run the installer:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/mbv06/slicer-uri-bridge/main/install-macos.sh | bash && export PATH="$HOME/.local/bin:$PATH"
+curl -fsSL https://github.com/mbv06/slicer-uri-bridge/releases/latest/download/install-macos.sh | bash && export PATH="$HOME/.local/bin:$PATH"
 ```
 
-The installer creates a private virtual environment in `~/.local/share/slicer-uri-bridge`, installs or upgrades the package there, creates `~/.local/bin/slicer-uri-bridge`, initializes config if needed, and registers URI handlers.
+The installer creates a private virtual environment in `~/.local/share/slicer-uri-bridge`, installs or upgrades the package there, creates `~/.local/bin/slicer-uri-bridge`, initializes or upgrades config if needed, and registers URI handlers.
+
+To install a specific version, download that release's `install-macos.sh` or set `SLICER_URI_BRIDGE_VERSION=v0.1.4`.
 
 After installation, open a new Terminal window if the command is not found, then test the registered handler by opening a known Benchy model URI:
 
@@ -59,7 +64,7 @@ First, install Python 3.11 or newer on the target system:
 Then install the package from GitHub:
 
 ```bash
-python -m pip install --upgrade https://github.com/mbv06/slicer-uri-bridge/archive/refs/heads/main.zip
+python -m pip install --upgrade https://github.com/mbv06/slicer-uri-bridge/releases/latest/download/slicer-uri-bridge-python.tar.gz
 ```
 
 Installation only installs the CLI and Python package. It does not register URI handlers automatically.
@@ -72,7 +77,7 @@ Run the CLI without arguments for interactive setup:
 slicer-uri-bridge
 ```
 
-This will initialize the config and open the interactive manager, where you can choose which URI schemes to register or unregister. Use `slicer-uri-bridge -h` to see all available commands.
+This will initialize or upgrade the config and open the interactive manager, where you can choose which URI schemes to register or unregister. Use `slicer-uri-bridge -h` to see all available commands.
 
 Automatic mode is conservative:
 
@@ -129,6 +134,9 @@ python -m slicer_uri_bridge.handler "<incoming-uri>"
 
 The bridge reads the user config, validates the incoming URI, downloads the model to a temporary or configured folder, checks the file type, and opens the result in Bambu Studio.
 
+For an all-model-files ZIP such as the packs served by Printables, the bridge extracts only STL files and opens them in Bambu Studio. A message asks you to choose `No` if Bambu Studio offers to load them as a single multipart object, then press `A` to arrange the separate models for your currently selected printer. Other archive entries are ignored. Set `allow_printables_bundle = false` to disable these ZIP downloads.
+
+
 The config file and log files are stored in:
 
 * Linux/macOS: `~/.config/slicer-uri-bridge/`
@@ -146,11 +154,12 @@ The bridge validates downloads before opening them:
 * redirect targets are revalidated
 * downloaded files must use an allowed model extension
 * empty files and obvious executable formats are refused
+* Printables model-pack ZIP downloads can be disabled with `allow_printables_bundle`; only 1–128 STL entries are extracted, with at most 16 files per sanitized name and a total-size limit
 * 3MF files are checked for embedded post-processing scripts ([scripts that can run after slicing](https://manual.slic3r.org/advanced/post-processing))
 
 By default, downloads are accepted from any host. To restrict downloads to specific hosts, set `allow_any_original_host = false` in the config and use the `allowed_hosts` list (the default config includes CDNs for Printables, Thingiverse, and Creality).
 
-All available options are described in the bundled [`default_config.toml`](src/slicer_uri_bridge/resources/default_config.toml) template and copied into the generated `config.toml` file.
+All available options are described in the bundled [`default_config.toml`](src/slicer_uri_bridge/resources/default_config.toml) template and copied into the generated `config.toml` file. After upgrading the package, run `slicer-uri-bridge init-config` to add any new options to an existing config; current values and comments are left unchanged. Use `init-config --force` to replace the file with the bundled default. The automatic installers already run `init-config` during upgrades.
 
 ## Troubleshooting
 

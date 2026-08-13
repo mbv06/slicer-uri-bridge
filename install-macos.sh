@@ -15,7 +15,10 @@ set -euo pipefail
 #
 # To update later, run this installer again.
 
-PROJECT_SPEC="${SLICER_URI_BRIDGE_PROJECT_SPEC:-https://github.com/mbv06/slicer-uri-bridge/archive/refs/heads/main.zip}"
+RELEASE_TAG="latest"
+if [ -n "${SLICER_URI_BRIDGE_VERSION:-}" ]; then
+  RELEASE_TAG="$SLICER_URI_BRIDGE_VERSION"
+fi
 
 APP_HOME="${HOME}/.local/share/slicer-uri-bridge"
 VENV="${APP_HOME}/venv"
@@ -36,6 +39,21 @@ die() {
   exit 1
 }
 
+case "$RELEASE_TAG" in
+  latest|dev|v[0-9][0-9A-Za-z.-]*) ;;
+  *)
+    die "Refusing unsafe SLICER_URI_BRIDGE_VERSION: $RELEASE_TAG"
+    ;;
+esac
+
+REPO="mbv06/slicer-uri-bridge"
+if [ "$RELEASE_TAG" = "latest" ]; then
+  DEFAULT_PROJECT_SPEC="https://github.com/${REPO}/releases/latest/download/slicer-uri-bridge-python.zip"
+else
+  DEFAULT_PROJECT_SPEC="https://github.com/${REPO}/releases/download/${RELEASE_TAG}/slicer-uri-bridge-python.zip"
+fi
+PROJECT_SPEC="${SLICER_URI_BRIDGE_PROJECT_SPEC:-$DEFAULT_PROJECT_SPEC}"
+
 python_is_compatible() {
   local python="$1"
 
@@ -43,6 +61,46 @@ python_is_compatible() {
 import sys
 raise SystemExit(0 if sys.version_info >= (${MIN_MAJOR}, ${MIN_MINOR}) else 1)
 PY
+}
+
+find_lock_and_project() {
+  local root="$1"
+  local found=""
+  local path
+
+  while IFS= read -r -d '' path; do
+    if [ -z "$found" ] || [ "${#path}" -lt "${#found}" ]; then
+      found="$path"
+    fi
+  done < <(find "$root" -type f -name 'requirements.lock' -print0)
+
+  [ -n "$found" ] || die "requirements.lock was not found in ${root}"
+  LOCK_FILE="$found"
+  INSTALL_SPEC="$(cd "$(dirname "$found")" && pwd)"
+}
+
+resolve_install_sources() {
+  local spec="$1"
+  local work_dir="$2"
+  local zip_file="${work_dir}/slicer-uri-bridge-python.zip"
+  local extract_dir="${work_dir}/extracted"
+
+  if [ -d "$spec" ]; then
+    [ -f "${spec}/requirements.lock" ] || die "requirements.lock was not found in ${spec}"
+    LOCK_FILE="${spec}/requirements.lock"
+    INSTALL_SPEC="$(cd "$spec" && pwd)"
+    return
+  fi
+
+  mkdir -p "$extract_dir"
+  if [ -f "$spec" ]; then
+    zip_file="$spec"
+  else
+    curl -fsSL -A slicer-uri-bridge-installer -o "$zip_file" -- "$spec"
+  fi
+
+  unzip -q "$zip_file" -d "$extract_dir"
+  find_lock_and_project "$extract_dir"
 }
 
 find_python311() {
@@ -157,7 +215,12 @@ main() {
 
   log "Installing / upgrading Slicer URI Bridge"
   "${VENV}/bin/python" -m pip install --upgrade pip
-  "${VENV}/bin/python" -m pip install --upgrade "$PROJECT_SPEC"
+  local work_dir
+  work_dir="$(mktemp -d "${TMPDIR:-/tmp}/slicer-uri-bridge-install.XXXXXX")"
+  trap "rm -rf -- $(printf '%q' "$work_dir")" EXIT
+  resolve_install_sources "$PROJECT_SPEC" "$work_dir"
+  "${VENV}/bin/python" -m pip install --require-hashes -r "$LOCK_FILE"
+  "${VENV}/bin/python" -m pip install --no-deps --upgrade "$INSTALL_SPEC"
 
   log "Creating command wrapper"
   create_wrapper

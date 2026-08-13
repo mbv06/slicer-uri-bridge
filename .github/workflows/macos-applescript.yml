@@ -34,7 +34,9 @@ jobs:
           python-version: "3.13"
 
       - name: Install package
-        run: python -m pip install -e .
+        run: |
+          python -m pip install --require-hashes -r requirements.lock
+          python -m pip install --no-deps -e .
 
       - name: Run macOS AppleScript tests
         run: python -m unittest tests.test_manager_macos

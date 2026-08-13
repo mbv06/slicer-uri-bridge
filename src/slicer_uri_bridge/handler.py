@@ -7,7 +7,6 @@ import ipaddress
 import json
 import logging
 import posixpath
-import re
 import shutil
 import socket
 import stat
@@ -20,10 +19,13 @@ import urllib.parse
 import urllib.request
 import urllib.response
 import zipfile
-from pathlib import Path, PurePosixPath, PureWindowsPath
+from pathlib import Path
 from urllib.parse import urlsplit
 
 from .config import missing_config_message, user_config_path, user_log_path
+from .files import BUFFER_SIZE, MAX_MODEL_BYTES, STL_SUFFIX, ZIP_SUFFIX, available_destination, safe_filename
+from .stl_archive import extract_stl_archive
+from .ui import show_bundle_hint, show_error, show_warning
 
 CONFIG_FILE = user_config_path()
 LOG_FILE = user_log_path()
@@ -32,13 +34,12 @@ USER_AGENT = "OrcaSlicer/2.4.0-dev"
 IS_WINDOWS = sys.platform == "win32"
 IS_MACOS = sys.platform == "darwin"
 MAX_REDIRECTS = 5
-MAX_DOWNLOAD_BYTES = 200 * 1024 * 1024
-BUFFER_SIZE = 81920
 REDIRECT_CODES = {301, 302, 303, 307, 308}
 EXECUTABLE_MODE_BITS = stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
 PROJECT_SETTINGS_PATH = "Metadata/project_settings.config"
 POST_PROCESS_ACTION_DEFAULT = "warn"
 POST_PROCESS_ACTIONS = {"ignore", "warn", "block"}
+WINDOWS_COMMAND_LINE_LIMIT = 32767
 
 
 class BridgeError(RuntimeError):
@@ -124,6 +125,10 @@ def load_config() -> dict:
         logger.warning("Invalid security.allow_local_resolved_hosts; using false")
         security["allow_local_resolved_hosts"] = False
 
+    if not isinstance(security.get("allow_printables_bundle", True), bool):
+        logger.warning("Invalid security.allow_printables_bundle; using false")
+        security["allow_printables_bundle"] = False
+
     security["post_process_action"] = normalize_post_process_action(security.get("post_process_action"))
 
     allowed_hosts = security.get("allowed_hosts", [])
@@ -207,7 +212,8 @@ def has_control_chars(value: str) -> bool:
 
 def strip_trailing_model_slash(url: str, allowed_extensions: set[str]) -> str:
     without_slash = url.rstrip("/")
-    if without_slash != url and any(without_slash.lower().endswith(ext) for ext in allowed_extensions):
+    extensions = allowed_extensions | {ZIP_SUFFIX}
+    if without_slash != url and any(without_slash.lower().endswith(ext) for ext in extensions):
         return without_slash
     return url
 
@@ -286,6 +292,17 @@ def is_supported_extension(file_name: str, allowed_extensions: set[str]) -> bool
     return Path(file_name).suffix.lower() in allowed_extensions
 
 
+def is_zip_filename(file_name: str | None) -> bool:
+    return Path(file_name or "").suffix.lower() == ZIP_SUFFIX
+
+
+def assert_printables_bundle_allowed(allowed_extensions: set[str], *, allow_bundle: bool) -> None:
+    if not allow_bundle:
+        raise BridgeError("Printables model-pack downloads are disabled by security.allow_printables_bundle.")
+    if STL_SUFFIX not in allowed_extensions:
+        raise BridgeError("STL is not enabled in security.allowed_extensions.")
+
+
 def assert_public_host(host: str) -> None:
     try:
         infos = socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)
@@ -351,7 +368,7 @@ def download_folder_from_config(config: dict) -> Path | None:
 
 
 def build_destination(file_name: str, allowed_extensions: set[str], download_folder: Path | None) -> Path:
-    safe_name = safe_download_filename(file_name)
+    safe_name = safe_filename(file_name)
     suffix = Path(safe_name).suffix.lower()
     if not suffix:
         raise BridgeError(f"Could not determine file extension: {file_name}")
@@ -369,28 +386,6 @@ def build_destination(file_name: str, allowed_extensions: set[str], download_fol
         raise BridgeError(f"Could not create download folder: {folder}") from exc
 
     return available_destination(folder, safe_name)
-
-
-def safe_download_filename(file_name: str) -> str:
-    name = PureWindowsPath(PurePosixPath(file_name).name).name.strip()
-    name = re.sub(r'[\x00-\x1f\x7f<>:"/\\|?*]+', "_", name).strip(" .")
-    return name or "model"
-
-
-def available_destination(folder: Path, file_name: str) -> Path:
-    destination = folder / file_name
-    if not destination.exists():
-        return destination
-
-    path = Path(file_name)
-    stem = path.stem or "model"
-    suffix = path.suffix
-    index = 1
-    while True:
-        candidate = folder / f"{stem} ({index}){suffix}"
-        if not candidate.exists():
-            return candidate
-        index += 1
 
 
 def request_headers(url: str, referrer: str | None) -> dict[str, str]:
@@ -456,7 +451,7 @@ def download_model(
                     size = int(content_length)
                 except ValueError:
                     size = None
-                if size is not None and size > MAX_DOWNLOAD_BYTES:
+                if size is not None and size > MAX_MODEL_BYTES:
                     raise BridgeError(f"Download is too large: {size} bytes")
 
             file_name = choose_filename(
@@ -477,8 +472,8 @@ def download_model(
                     output_created = True
                     while chunk := response.read(BUFFER_SIZE):
                         total += len(chunk)
-                        if total > MAX_DOWNLOAD_BYTES:
-                            raise BridgeError(f"Download exceeded the size limit: {MAX_DOWNLOAD_BYTES} bytes")
+                        if total > MAX_MODEL_BYTES:
+                            raise BridgeError(f"Download exceeded the size limit: {MAX_MODEL_BYTES} bytes")
                         output.write(chunk)
             except Exception:
                 if output_created:
@@ -525,6 +520,17 @@ def validate_downloaded_file(path: Path) -> None:
     }
     if header[:4] in macho_magics:
         raise BridgeError("Downloaded file is a Mach-O executable, refusing to open it.")
+
+
+def prepare_model_paths(path: Path) -> list[Path]:
+    if path.suffix.lower() != ZIP_SUFFIX:
+        return [path]
+    destination = Path(tempfile.mkdtemp(prefix=".slicer-uri-bridge-stl-", dir=path.parent))
+    try:
+        return extract_stl_archive(path, destination)
+    except Exception:
+        shutil.rmtree(destination, ignore_errors=True)
+        raise
 
 
 def scan_3mf_post_process(path: Path) -> list[str] | None:
@@ -595,9 +601,9 @@ def resolve_bambu_command(config: dict) -> list[str]:
     path = Path(configured_path).expanduser()
 
     if IS_MACOS and path.suffix.lower() == ".app":
-        if not path.exists():
+        if not path.is_dir():
             return warn_and_resolve_default_open_command(f"Bambu Studio app not found: {path}")
-        return ["open", "-a", str(path), "--args"]
+        return ["open", "-a", str(path)]
 
     if path.is_absolute() or path.parent != Path("."):
         if not path.exists():
@@ -636,6 +642,10 @@ def resolve_default_open_command() -> list[str]:
     raise BridgeError("No default file opener found. Configure bambu_studio.linux.")
 
 
+def is_single_file_opener(command: list[str]) -> bool:
+    return bool(command) and Path(command[0]).name.lower() == "xdg-open"
+
+
 def detached_process_kwargs() -> dict:
     kwargs = {
         "stdin": subprocess.DEVNULL,
@@ -647,39 +657,32 @@ def detached_process_kwargs() -> dict:
     return kwargs
 
 
-def launch_bambu(command: list[str], model_path: Path) -> None:
+def launch_bambu(command: list[str], model_paths: list[Path]) -> None:
+    if len(model_paths) > 1 and is_single_file_opener(command):
+        raise BridgeError(
+            "Printables STL bundles require Bambu Studio. "
+            f"Configure bambu_studio.{platform_config_key()} with the path to Bambu Studio."
+        )
+    arguments = [*command, *(str(path) for path in model_paths)]
+    if IS_WINDOWS and len(subprocess.list2cmdline(arguments)) >= WINDOWS_COMMAND_LINE_LIMIT:
+        raise BridgeError(
+            "The Bambu Studio command exceeds the Windows command-line limit. "
+            "Use a shorter download_folder or a model pack with fewer or shorter STL filenames."
+        )
     try:
-        subprocess.Popen([*command, str(model_path)], **detached_process_kwargs())
-        logger.info(f"Opened Bambu Studio with file: {model_path}")
+        subprocess.Popen(arguments, **detached_process_kwargs())
+        logger.info("Opened Bambu Studio with %d file(s)", len(model_paths))
     except OSError as exc:
         raise BridgeError(f"Failed to start Bambu Studio: {exc}") from exc
-
-
-def show_message(message: str, kind: str) -> None:
-    print(message, file=sys.stderr)
-    with contextlib.suppress(Exception):
-        import tkinter
-        from tkinter import messagebox
-
-        root = tkinter.Tk()
-        root.withdraw()
-        getattr(messagebox, kind)("Slicer URI Bridge", message)
-        root.destroy()
-
-
-def show_error(message: str) -> None:
-    show_message(message, "showerror")
-
-
-def show_warning(message: str) -> None:
-    show_message(message, "showwarning")
 
 
 def main(argv: list[str] | None = None) -> int:
     setup_logging()
     args = parse_args(sys.argv[1:] if argv is None else argv)
     uri: str | None = None
-    local_path: Path | None = None
+    downloaded_path: Path | None = None
+    model_paths: list[Path] = []
+    extract_dir: Path | None = None
     download_folder: Path | None = None
 
     try:
@@ -687,7 +690,7 @@ def main(argv: list[str] | None = None) -> int:
         security = config["security"]
         allow_plain_http = security.get("allow_plain_http", False)
         allow_local_resolved_hosts = security.get("allow_local_resolved_hosts", False)
-        allowed_extensions = security["allowed_extensions"]
+        allowed_extensions = set(security["allowed_extensions"])
         download_folder = download_folder_from_config(config)
 
         uri = resolve_protocol_uri(args)
@@ -701,6 +704,15 @@ def main(argv: list[str] | None = None) -> int:
             logger.error("Input URI: %r", uri)
             raise
         logger.info(f"Resolved input URI with download URL: {download_url}")
+
+        allow_bundle = security.get("allow_printables_bundle", True)
+        predicted_name = suggested_name or filename_from_url(download_url)
+        if is_zip_filename(predicted_name):
+            assert_printables_bundle_allowed(allowed_extensions, allow_bundle=allow_bundle)
+        download_extensions = allowed_extensions | (
+            {ZIP_SUFFIX} if allow_bundle and STL_SUFFIX in allowed_extensions else set()
+        )
+
         allowed_hosts, allow_any_original_host = load_allowed_hosts(config)
         validate_remote_url(
             download_url,
@@ -713,30 +725,43 @@ def main(argv: list[str] | None = None) -> int:
 
         command = resolve_bambu_command(config)
 
-        local_path = download_model(
+        downloaded_path = download_model(
             download_url,
             suggested_name=suggested_name,
-            allowed_extensions=allowed_extensions,
+            allowed_extensions=download_extensions,
             download_folder=download_folder,
             allowed_hosts=allowed_hosts,
             allow_any_original_host=allow_any_original_host,
             allow_plain_http=allow_plain_http,
             allow_local_resolved_hosts=allow_local_resolved_hosts,
         )
-        validate_downloaded_file(local_path)
-        check_3mf_post_process(local_path, security["post_process_action"])
+        validate_downloaded_file(downloaded_path)
+        is_bundle = is_zip_filename(downloaded_path.name)
+        if is_bundle:
+            assert_printables_bundle_allowed(allowed_extensions, allow_bundle=allow_bundle)
+        model_paths = prepare_model_paths(downloaded_path)
+        if model_paths[0] != downloaded_path:
+            extract_dir = model_paths[0].parent
+        if is_bundle:
+            for model_path in model_paths:
+                validate_downloaded_file(model_path)
+        check_3mf_post_process(downloaded_path, security["post_process_action"])
 
-        launch_bambu(command, local_path)
+        if is_bundle:
+            show_bundle_hint()
+        launch_bambu(command, model_paths)
 
         return 0
     except Exception as exc:
         logger.error(f"Failed: {exc}")
-        if local_path:
+        if extract_dir is not None:
+            shutil.rmtree(extract_dir, ignore_errors=True)
+        if downloaded_path is not None:
             with contextlib.suppress(OSError):
-                local_path.unlink()
+                downloaded_path.unlink()
             if download_folder is None:
                 with contextlib.suppress(OSError):
-                    local_path.parent.rmdir()
+                    downloaded_path.parent.rmdir()
         show_error(str(exc))
         return 1
 
