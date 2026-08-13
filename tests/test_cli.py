@@ -3,6 +3,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 import sys
+import tomllib
 import unittest
 import uuid
 from collections.abc import Iterator
@@ -85,7 +86,7 @@ class InteractiveOnboardingTests(unittest.TestCase):
                 patch("sys.stdout", new_callable=StringIO),
                 patch("builtins.input", side_effect=[""]),
                 patch("slicer_uri_bridge.cli.user_config_path", return_value=config_path),
-                patch("slicer_uri_bridge.cli.init_user_config", return_value=(config_path, True)) as init_config,
+                patch("slicer_uri_bridge.cli.init_user_config", return_value=(config_path, True, [])) as init_config,
                 patch("slicer_uri_bridge.cli.manager_main", return_value=0) as manager,
             ):
                 result = cli.interactive_onboarding()
@@ -94,26 +95,27 @@ class InteractiveOnboardingTests(unittest.TestCase):
         init_config.assert_called_once_with(force=False)
         manager.assert_called_once_with([])
 
-    def test_custom_config_is_kept_and_interactive_register_runs(self) -> None:
+    def test_custom_config_is_upgraded_and_interactive_register_runs(self) -> None:
         with temporary_directory() as temp_dir:
             config_path = temp_dir / "config.toml"
             config_path.write_text("custom = true\n", encoding="utf-8")
 
             with (
                 patch("sys.stdin", FakeTty()),
-                patch("sys.stdout", new_callable=StringIO),
-                patch("builtins.input", side_effect=["n"]),
+                patch("sys.stdout", new_callable=StringIO) as stdout,
                 patch("slicer_uri_bridge.cli.user_config_path", return_value=config_path),
-                patch("slicer_uri_bridge.cli.config_matches_default", return_value=False),
-                patch("slicer_uri_bridge.cli.init_user_config") as init_config,
+                patch(
+                    "slicer_uri_bridge.cli.init_user_config",
+                    return_value=(config_path, False, ["security.allow_printables_bundle"]),
+                ) as init_config,
                 patch("slicer_uri_bridge.cli.manager_main", return_value=0) as manager,
             ):
                 result = cli.interactive_onboarding()
 
         self.assertEqual(result, 0)
-        init_config.assert_not_called()
-        manager.assert_called_once()
+        init_config.assert_called_once_with(force=False)
         manager.assert_called_once_with([])
+        self.assertIn("security.allow_printables_bundle", stdout.getvalue())
 
     def test_init_config_warns_about_missing_linux_bambu_target_with_fallback_note(self) -> None:
         with temporary_directory() as temp_dir:
@@ -126,7 +128,7 @@ class InteractiveOnboardingTests(unittest.TestCase):
             with (
                 patch("slicer_uri_bridge.cli.IS_WINDOWS", False),
                 patch("slicer_uri_bridge.cli.IS_MACOS", False),
-                patch("slicer_uri_bridge.cli.init_user_config", return_value=(config_path, True)),
+                patch("slicer_uri_bridge.cli.init_user_config", return_value=(config_path, True, [])),
                 patch("slicer_uri_bridge.cli.shutil.which", return_value=None),
                 patch("sys.stdout", new_callable=StringIO),
                 patch("sys.stderr", new_callable=StringIO) as stderr,
@@ -150,7 +152,7 @@ class InteractiveOnboardingTests(unittest.TestCase):
                 patch("slicer_uri_bridge.cli.IS_WINDOWS", True),
                 patch("slicer_uri_bridge.cli.IS_MACOS", False),
                 patch("slicer_uri_bridge.cli.configured_bambu_target_exists", return_value=False),
-                patch("slicer_uri_bridge.cli.init_user_config", return_value=(config_path, True)),
+                patch("slicer_uri_bridge.cli.init_user_config", return_value=(config_path, True, [])),
                 patch("sys.stdout", new_callable=StringIO),
                 patch("sys.stderr", new_callable=StringIO) as stderr,
             ):
@@ -171,7 +173,7 @@ class InteractiveOnboardingTests(unittest.TestCase):
             with (
                 patch("slicer_uri_bridge.cli.IS_WINDOWS", False),
                 patch("slicer_uri_bridge.cli.IS_MACOS", False),
-                patch("slicer_uri_bridge.cli.init_user_config", return_value=(config_path, False)),
+                patch("slicer_uri_bridge.cli.init_user_config", return_value=(config_path, False, [])),
                 patch("slicer_uri_bridge.cli.shutil.which", return_value=None),
                 patch("sys.stdout", new_callable=StringIO),
                 patch("sys.stderr", new_callable=StringIO) as stderr,
@@ -179,6 +181,44 @@ class InteractiveOnboardingTests(unittest.TestCase):
                 self.assertEqual(cli.main(["init-config"]), 0)
 
         self.assertIn("Bambu Studio path from config was not found", stderr.getvalue())
+
+    def test_init_config_adds_missing_options_and_keeps_user_values(self) -> None:
+        with temporary_directory() as temp_dir:
+            config_path = temp_dir / "config.toml"
+            config_path.write_text(
+                """[security]
+allow_plain_http = true
+allow_any_original_host = false
+allowed_extensions = [".3mf"]
+allowed_hosts = ["example.com"]
+
+[bambu_studio]
+windows = 'D:\\custom\\bambu-studio.exe'
+macos = "/custom/BambuStudio.app"
+linux = "/custom/BambuStudio.AppImage"
+""",
+                encoding="utf-8",
+            )
+
+            with (
+                patch("slicer_uri_bridge.config.user_config_path", return_value=config_path),
+                patch("slicer_uri_bridge.cli.IS_WINDOWS", False),
+                patch("slicer_uri_bridge.cli.IS_MACOS", False),
+                patch("slicer_uri_bridge.cli.shutil.which", return_value="/custom/BambuStudio.AppImage"),
+                patch("sys.stdout", new_callable=StringIO) as stdout,
+                patch("sys.stderr", new_callable=StringIO),
+            ):
+                self.assertEqual(cli.main(["init-config"]), 0)
+
+            text = stdout.getvalue()
+            self.assertIn("Updated config", text)
+            self.assertIn("Added missing options", text)
+            self.assertIn("security.allow_printables_bundle", text)
+            merged = tomllib.loads(config_path.read_text(encoding="utf-8"))
+            self.assertTrue(merged["security"]["allow_plain_http"])
+            self.assertFalse(merged["security"]["allow_any_original_host"])
+            self.assertEqual(merged["bambu_studio"]["linux"], "/custom/BambuStudio.AppImage")
+            self.assertTrue(merged["security"]["allow_printables_bundle"])
 
     def test_manager_subcommand_delegates_empty_argv(self) -> None:
         with patch("slicer_uri_bridge.cli.manager_main", return_value=0) as manager:
