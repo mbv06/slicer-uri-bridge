@@ -21,7 +21,21 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$DefaultProjectSpec = 'https://github.com/mbv06/slicer-uri-bridge/archive/refs/heads/main.zip'
+$ReleaseTag = 'latest'
+if ($env:SLICER_URI_BRIDGE_VERSION -and $env:SLICER_URI_BRIDGE_VERSION.Trim()) {
+    $ReleaseTag = $env:SLICER_URI_BRIDGE_VERSION.Trim()
+}
+if ($ReleaseTag -notmatch '^(latest|v[0-9][0-9A-Za-z.-]*)$') {
+    throw "Refusing unsafe SLICER_URI_BRIDGE_VERSION: $ReleaseTag"
+}
+
+$Repo = 'mbv06/slicer-uri-bridge'
+if ($ReleaseTag -eq 'latest') {
+    $DefaultProjectSpec = "https://github.com/$Repo/releases/latest/download/slicer-uri-bridge-python.zip"
+}
+else {
+    $DefaultProjectSpec = "https://github.com/$Repo/releases/download/$ReleaseTag/slicer-uri-bridge-python.zip"
+}
 $ProjectSpec = if ($env:SLICER_URI_BRIDGE_PROJECT_SPEC) { $env:SLICER_URI_BRIDGE_PROJECT_SPEC } else { $DefaultProjectSpec }
 $AppHome     = Join-Path $env:LOCALAPPDATA 'slicer-uri-bridge'
 $VenvDir     = Join-Path $AppHome 'venv'
@@ -169,6 +183,87 @@ function Die($Message) {
     exit 1
 }
 
+function Save-InstallerDownload {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Url,
+
+        [Parameter(Mandatory = $true)]
+        [string]$OutFile
+    )
+
+    [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+    $ProgressPreference = 'SilentlyContinue'
+    Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing -Headers @{
+        'User-Agent' = 'slicer-uri-bridge-installer'
+    }
+}
+
+function Expand-InstallerZip {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ZipPath,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Destination
+    )
+
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    [System.IO.Compression.ZipFile]::ExtractToDirectory($ZipPath, $Destination)
+}
+
+function Get-LockAndProjectFromTree {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Root
+    )
+
+    $lock = Get-ChildItem -LiteralPath $Root -Recurse -File -Filter 'requirements.lock' |
+            Sort-Object { $_.FullName.Length } |
+            Select-Object -First 1
+    if (-not $lock) {
+        Die "requirements.lock was not found in $Root"
+    }
+
+    return @{
+        LockFile = $lock.FullName
+        InstallSpec = $lock.DirectoryName
+    }
+}
+
+function Resolve-InstallSources {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Spec,
+
+        [Parameter(Mandatory = $true)]
+        [string]$WorkDir
+    )
+
+    if (Test-Path -LiteralPath $Spec -PathType Container) {
+        $lock = Join-Path $Spec 'requirements.lock'
+        if (-not (Test-Path -LiteralPath $lock -PathType Leaf)) {
+            Die "requirements.lock was not found in $Spec"
+        }
+        return @{
+            LockFile = $lock
+            InstallSpec = (Resolve-Path -LiteralPath $Spec).Path
+        }
+    }
+
+    $zipFile = Join-Path $WorkDir 'slicer-uri-bridge-python.zip'
+    $extractDir = Join-Path $WorkDir 'extracted'
+    if (Test-Path -LiteralPath $Spec -PathType Leaf) {
+        $zipFile = (Resolve-Path -LiteralPath $Spec).Path
+    }
+    else {
+        Save-InstallerDownload -Url $Spec -OutFile $zipFile
+    }
+
+    Expand-InstallerZip -ZipPath $zipFile -Destination $extractDir
+    return Get-LockAndProjectFromTree -Root $extractDir
+}
+
 function Test-PythonCompatible($PythonPath) {
     try {
         $version = & $PythonPath -c 'import sys; print(sys.version_info.major); print(sys.version_info.minor)' 2>$null
@@ -277,9 +372,19 @@ Then open a new terminal window and run this installer again.
     Invoke-NativeCommand -FilePath $python -Arguments @('-m', 'venv', $VenvDir) -FailureMessage 'Failed to create virtual environment.' | Out-Null
 
     $venvPython = Join-Path $ScriptsDir 'python.exe'
+    $workDir = Join-Path ([System.IO.Path]::GetTempPath()) ("slicer-uri-bridge-install-" + [guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $workDir -Force | Out-Null
 
-    Log 'Installing / upgrading Slicer URI Bridge'
-    Invoke-NativeCommand -FilePath $venvPython -Arguments @('-m', 'pip', 'install', '--upgrade', $ProjectSpec) -FailureMessage 'pip install failed.' | Out-Null
+    try {
+        Log 'Installing / upgrading Slicer URI Bridge'
+        $resolved = Resolve-InstallSources -Spec $ProjectSpec -WorkDir $workDir
+        Invoke-NativeCommand -FilePath $venvPython -Arguments @('-m', 'pip', 'install', '--upgrade', 'pip') -FailureMessage 'Failed to upgrade pip.' | Out-Null
+        Invoke-NativeCommand -FilePath $venvPython -Arguments @('-m', 'pip', 'install', '--require-hashes', '-r', $resolved.LockFile) -FailureMessage 'Failed to install hashed runtime dependencies.' | Out-Null
+        Invoke-NativeCommand -FilePath $venvPython -Arguments @('-m', 'pip', 'install', '--no-deps', '--upgrade', $resolved.InstallSpec) -FailureMessage 'pip install failed.' | Out-Null
+    }
+    finally {
+        Remove-Item -LiteralPath $workDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
 
     Log 'Adding Scripts directory to user PATH'
     $added = Add-ToUserPath $ScriptsDir

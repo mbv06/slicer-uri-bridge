@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented here.
 
+## v0.1.4 - 2026-08-13
+
+### Added
+
+- Add support for Printables model-pack ZIP links: only STL files are extracted and opened as separate models using the user's current Bambu Studio presets.
+- Show a hint to keep the STL files as separate objects and press `A` in Bambu Studio to arrange them for the selected printer.
+- Add `security.allow_printables_bundle`, enabled by default, to allow disabling model-pack ZIP downloads.
+- Add config upgrade on `init-config`: missing options from the bundled template are added to an existing `config.toml` without overwriting current values.
+- Use `tomlkit` to edit `config.toml` while preserving comments and layout. The dependency is pinned to `0.15.1` in `pyproject.toml`, with SHA256 hashes in `requirements.lock`.
+- Publish GitHub Releases with a versioned sdist, a zip that includes `requirements.lock`, and installers pinned to that tag. The installers unpack the zip and install hashed dependencies before the package.
+
+
 ## v0.1.3 - 2026-06-03
 
 ### Added
