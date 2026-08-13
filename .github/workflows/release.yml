@@ -171,6 +171,12 @@ jobs:
               print(f"Pinned {path} to {tag}")
           PY
 
+      - name: Extract release notes from CHANGELOG.md
+        env:
+          RELEASE_TAG: ${{ steps.meta.outputs.release_tag }}
+          NOTES_PATH: ${{ runner.temp }}/release-notes.md
+        run: python tests/changelog_notes.py
+
       - name: Move rolling dev tag
         if: steps.meta.outputs.release_tag == 'dev'
         env:
@@ -197,7 +203,7 @@ jobs:
           prerelease: ${{ steps.meta.outputs.prerelease == 'true' }}
           make_latest: ${{ steps.meta.outputs.make_latest }}
           overwrite_files: true
-          generate_release_notes: true
+          body_path: ${{ runner.temp }}/release-notes.md
           files: |
             dist/slicer-uri-bridge-python.tar.gz
             dist/slicer-uri-bridge-python.zip
