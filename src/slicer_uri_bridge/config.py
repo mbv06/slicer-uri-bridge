@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import contextlib
 import copy
 import os
+import shutil
+import stat
 import sys
 import tomllib
 from collections.abc import Mapping
@@ -81,6 +84,8 @@ def upgrade_user_config(path: Path | None = None) -> list[str]:
 
     Existing values, comments, and unknown keys are left unchanged. Returns the
     dotted paths that were added. The file is not rewritten when nothing is missing.
+    When the file is rewritten, the previous contents are saved as ``config.toml.bak``
+    with the original permissions.
     """
     path = user_config_path() if path is None else path
     try:
@@ -97,8 +102,11 @@ def upgrade_user_config(path: Path | None = None) -> list[str]:
         return []
 
     tmp_path = path.with_name(f".{path.name}.tmp")
+    backup_path = path.with_name(f"{path.name}.bak")
     try:
+        shutil.copy2(path, backup_path)
         tmp_path.write_text(updated, encoding="utf-8")
+        _copy_file_metadata(path, tmp_path)
         tmp_path.replace(path)
     except OSError as exc:
         raise RuntimeError(f"Cannot write config file: {path}") from exc
@@ -143,6 +151,19 @@ def config_matches_default(path: Path | None = None) -> bool:
         return path.read_text(encoding="utf-8") == default_config_text()
     except OSError:
         return False
+
+
+def _copy_file_metadata(source: Path, dest: Path) -> None:
+    """Copy mode and, where supported, ownership and other file metadata."""
+    try:
+        shutil.copystat(source, dest, follow_symlinks=True)
+    except OSError:
+        os.chmod(dest, stat.S_IMODE(source.stat().st_mode))
+
+    if hasattr(os, "chown"):
+        source_stat = source.stat()
+        with contextlib.suppress(OSError):
+            os.chown(dest, source_stat.st_uid, source_stat.st_gid)
 
 
 def missing_config_message(path: Path | None = None) -> str:

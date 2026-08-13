@@ -11,7 +11,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from slicer_uri_bridge.files import safe_filename
-from slicer_uri_bridge.stl_archive import extract_stl_archive
+from slicer_uri_bridge.stl_archive import MAX_NAME_COLLISIONS, MAX_STL_FILES, extract_stl_archive
 
 TEMP_ROOT = Path(__file__).resolve().parent / ".tmp"
 
@@ -97,6 +97,26 @@ class StlArchiveTests(unittest.TestCase):
             extracted = extract_stl_archive(archive_path, folder / "stl")
 
             self.assertEqual(len(extracted), 37)
+
+    def test_rejects_more_than_max_stl_files(self) -> None:
+        with temporary_directory() as folder:
+            archive_path = folder / "models.zip"
+            with zipfile.ZipFile(archive_path, "w") as archive:
+                for index in range(MAX_STL_FILES + 1):
+                    archive.writestr(f"part-{index}.stl", b"solid model\n")
+
+            with self.assertRaisesRegex(ValueError, f"at most {MAX_STL_FILES} STL files"):
+                extract_stl_archive(archive_path, folder / "stl")
+
+    def test_rejects_excessive_duplicate_stl_names(self) -> None:
+        with temporary_directory() as folder:
+            archive_path = folder / "models.zip"
+            with zipfile.ZipFile(archive_path, "w") as archive:
+                for index in range(MAX_NAME_COLLISIONS + 1):
+                    archive.writestr(f"folder-{index}/part.stl", b"solid model\n")
+
+            with self.assertRaisesRegex(ValueError, "too many STL files with the same name"):
+                extract_stl_archive(archive_path, folder / "stl")
 
     def test_enforces_size_limit_while_extracting(self) -> None:
         entry = zipfile.ZipInfo("model.stl")

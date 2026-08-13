@@ -291,6 +291,17 @@ def is_supported_extension(file_name: str, allowed_extensions: set[str]) -> bool
     return Path(file_name).suffix.lower() in allowed_extensions
 
 
+def is_zip_filename(file_name: str | None) -> bool:
+    return Path(file_name or "").suffix.lower() == ZIP_SUFFIX
+
+
+def assert_printables_bundle_allowed(allowed_extensions: set[str], *, allow_bundle: bool) -> None:
+    if not allow_bundle:
+        raise BridgeError("Printables model-pack downloads are disabled by security.allow_printables_bundle.")
+    if STL_SUFFIX not in allowed_extensions:
+        raise BridgeError("STL is not enabled in security.allowed_extensions.")
+
+
 def assert_public_host(host: str) -> None:
     try:
         infos = socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)
@@ -589,10 +600,9 @@ def resolve_bambu_command(config: dict) -> list[str]:
     path = Path(configured_path).expanduser()
 
     if IS_MACOS and path.suffix.lower() == ".app":
-        executable = path / "Contents" / "MacOS" / "BambuStudio"
-        if not executable.is_file():
-            return warn_and_resolve_default_open_command(f"Bambu Studio executable not found: {executable}")
-        return [str(executable)]
+        if not path.is_dir():
+            return warn_and_resolve_default_open_command(f"Bambu Studio app not found: {path}")
+        return ["open", "-a", str(path)]
 
     if path.is_absolute() or path.parent != Path("."):
         if not path.exists():
@@ -688,12 +698,13 @@ def main(argv: list[str] | None = None) -> int:
             raise
         logger.info(f"Resolved input URI with download URL: {download_url}")
 
-        is_bundle = urllib.parse.unquote(urlsplit(download_url).path).lower().endswith(ZIP_SUFFIX)
-        if is_bundle and not security.get("allow_printables_bundle", True):
-            raise BridgeError("Printables model-pack downloads are disabled by security.allow_printables_bundle.")
-        if is_bundle and STL_SUFFIX not in allowed_extensions:
-            raise BridgeError("STL is not enabled in security.allowed_extensions.")
-        download_extensions = allowed_extensions | ({ZIP_SUFFIX} if is_bundle else set())
+        allow_bundle = security.get("allow_printables_bundle", True)
+        predicted_name = suggested_name or filename_from_url(download_url)
+        if is_zip_filename(predicted_name):
+            assert_printables_bundle_allowed(allowed_extensions, allow_bundle=allow_bundle)
+        download_extensions = allowed_extensions | (
+            {ZIP_SUFFIX} if allow_bundle and STL_SUFFIX in allowed_extensions else set()
+        )
 
         allowed_hosts, allow_any_original_host = load_allowed_hosts(config)
         validate_remote_url(
@@ -718,6 +729,9 @@ def main(argv: list[str] | None = None) -> int:
             allow_local_resolved_hosts=allow_local_resolved_hosts,
         )
         validate_downloaded_file(downloaded_path)
+        is_bundle = is_zip_filename(downloaded_path.name)
+        if is_bundle:
+            assert_printables_bundle_allowed(allowed_extensions, allow_bundle=allow_bundle)
         model_paths = prepare_model_paths(downloaded_path)
         if model_paths[0] != downloaded_path:
             extract_dir = model_paths[0].parent

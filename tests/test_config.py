@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import stat
 import tomllib
 import unittest
 import uuid
@@ -227,6 +228,8 @@ linux = "/custom/BambuStudio.AppImage"
 class UpgradeUserConfigTests(unittest.TestCase):
     def tearDown(self) -> None:
         if TEMP_ROOT.exists():
+            for path in TEMP_ROOT.glob("config-*.toml.bak"):
+                path.unlink(missing_ok=True)
             for path in TEMP_ROOT.glob("config-*.toml"):
                 path.unlink(missing_ok=True)
             for path in TEMP_ROOT.glob(".config-*.toml.tmp"):
@@ -239,6 +242,34 @@ class UpgradeUserConfigTests(unittest.TestCase):
         self.assertEqual(added, [])
         self.assertEqual(path.read_text(encoding="utf-8"), default_config_text())
         self.assertEqual(path.stat().st_mtime_ns, mtime)
+        self.assertFalse(path.with_name(f"{path.name}.bak").exists())
+
+    def test_preserves_original_file_mode(self) -> None:
+        path = write_temp_config(
+            """[security]
+allow_plain_http = true
+allow_any_original_host = true
+allowed_extensions = [".3mf"]
+post_process_action = "block"
+allowed_hosts = ["example.com"]
+
+[bambu_studio]
+windows = "a"
+macos = "b"
+linux = "c"
+"""
+        )
+        path.chmod(0o600)
+        expected_mode = stat.S_IMODE(path.stat().st_mode)
+        original = path.read_text(encoding="utf-8")
+
+        added = upgrade_user_config(path)
+
+        self.assertIn("security.allow_printables_bundle", added)
+        self.assertEqual(stat.S_IMODE(path.stat().st_mode), expected_mode)
+        backup = path.with_name(f"{path.name}.bak")
+        self.assertEqual(backup.read_text(encoding="utf-8"), original)
+        self.assertEqual(stat.S_IMODE(backup.stat().st_mode), expected_mode)
 
     def test_rejects_invalid_toml_without_writing(self) -> None:
         path = write_temp_config("this is not toml = [\n")
@@ -246,6 +277,7 @@ class UpgradeUserConfigTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "invalid config"):
             upgrade_user_config(path)
         self.assertEqual(path.read_text(encoding="utf-8"), original)
+        self.assertFalse(path.with_name(f"{path.name}.bak").exists())
 
     def test_init_user_config_upgrades_existing_file(self) -> None:
         path = write_temp_config(

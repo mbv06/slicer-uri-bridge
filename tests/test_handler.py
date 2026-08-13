@@ -20,6 +20,7 @@ from slicer_uri_bridge.handler import (
     filename_from_url,
     has_executable_bits,
     is_empty_bambustudioopen_uri,
+    is_zip_filename,
     launch_bambu,
     load_config,
     main,
@@ -210,8 +211,169 @@ class MainLoggingTests(unittest.TestCase):
         show_hint.assert_called_once()
         show_error.assert_not_called()
 
+    def test_query_zip_name_is_disabled_before_download(self) -> None:
+        config = {
+            "security": {
+                "allowed_extensions": [".stl"],
+                "allow_plain_http": False,
+                "allow_any_original_host": True,
+                "allow_local_resolved_hosts": False,
+                "allow_printables_bundle": False,
+            },
+            "bambu_studio": {},
+        }
+
+        with (
+            patch("slicer_uri_bridge.handler.load_config", return_value=config),
+            patch("slicer_uri_bridge.handler.download_model") as download,
+            patch("slicer_uri_bridge.handler.show_error") as show_error,
+        ):
+            exit_code = main(["prusaslicer://open?file=https%3A%2F%2Ffiles.example%2Fdownload&name=pack.zip"])
+
+        self.assertEqual(exit_code, 1)
+        download.assert_not_called()
+        self.assertIn("security.allow_printables_bundle", show_error.call_args.args[0])
+
+    def test_query_zip_name_opens_stls_and_shows_arrange_hint(self) -> None:
+        config = {
+            "security": {
+                "allowed_extensions": [".stl"],
+                "allow_plain_http": False,
+                "allow_any_original_host": True,
+                "allow_local_resolved_hosts": False,
+                "allow_printables_bundle": True,
+                "post_process_action": "warn",
+                "allowed_hosts": [],
+            },
+            "bambu_studio": {},
+        }
+
+        with temporary_directory() as temp_dir:
+            archive = Path(temp_dir) / "pack.zip"
+            with zipfile.ZipFile(archive, "w") as bundle:
+                bundle.writestr("first.stl", b"solid first\n")
+
+            with (
+                patch("slicer_uri_bridge.handler.load_config", return_value=config),
+                patch("slicer_uri_bridge.handler.validate_remote_url"),
+                patch("slicer_uri_bridge.handler.resolve_bambu_command", return_value=["bambu-studio"]),
+                patch("slicer_uri_bridge.handler.download_model", return_value=archive),
+                patch("slicer_uri_bridge.handler.launch_bambu") as launch,
+                patch("slicer_uri_bridge.handler.show_bundle_hint") as show_hint,
+                patch("slicer_uri_bridge.handler.show_error") as show_error,
+            ):
+                exit_code = main(["prusaslicer://open?file=https%3A%2F%2Ffiles.example%2Fdownload&name=pack.zip"])
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual([path.name for path in launch.call_args.args[1]], ["first.stl"])
+        show_hint.assert_called_once()
+        show_error.assert_not_called()
+
+    def test_opaque_url_allows_zip_download_when_bundles_are_enabled(self) -> None:
+        config = {
+            "security": {
+                "allowed_extensions": [".stl"],
+                "allow_plain_http": False,
+                "allow_any_original_host": True,
+                "allow_local_resolved_hosts": False,
+                "allow_printables_bundle": True,
+                "allowed_hosts": [],
+            },
+            "bambu_studio": {},
+        }
+
+        with (
+            patch("slicer_uri_bridge.handler.load_config", return_value=config),
+            patch("slicer_uri_bridge.handler.validate_remote_url"),
+            patch("slicer_uri_bridge.handler.resolve_bambu_command", return_value=["bambu-studio"]),
+            patch("slicer_uri_bridge.handler.download_model", side_effect=BridgeError("stop")) as download,
+            patch("slicer_uri_bridge.handler.show_error"),
+        ):
+            exit_code = main(["bambustudioopen://https%3A%2F%2Ffiles.example%2Fdownload"])
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn(".zip", download.call_args.kwargs["allowed_extensions"])
+
+    def test_zip_in_allowed_extensions_still_requires_bundle_policy(self) -> None:
+        config = {
+            "security": {
+                "allowed_extensions": [".stl", ".zip"],
+                "allow_plain_http": False,
+                "allow_any_original_host": True,
+                "allow_local_resolved_hosts": False,
+                "allow_printables_bundle": False,
+                "post_process_action": "warn",
+                "allowed_hosts": [],
+            },
+            "bambu_studio": {},
+        }
+
+        with temporary_directory() as temp_dir:
+            archive = Path(temp_dir) / "pack.zip"
+            with zipfile.ZipFile(archive, "w") as bundle:
+                bundle.writestr("first.stl", b"solid first\n")
+
+            with (
+                patch("slicer_uri_bridge.handler.load_config", return_value=config),
+                patch("slicer_uri_bridge.handler.validate_remote_url"),
+                patch("slicer_uri_bridge.handler.resolve_bambu_command", return_value=["bambu-studio"]),
+                patch("slicer_uri_bridge.handler.download_model", return_value=archive),
+                patch("slicer_uri_bridge.handler.extract_stl_archive") as extract,
+                patch("slicer_uri_bridge.handler.launch_bambu") as launch,
+                patch("slicer_uri_bridge.handler.show_bundle_hint") as show_hint,
+                patch("slicer_uri_bridge.handler.show_error") as show_error,
+            ):
+                exit_code = main(["bambustudioopen://https%3A%2F%2Ffiles.example%2Fdownload"])
+
+        self.assertEqual(exit_code, 1)
+        extract.assert_not_called()
+        launch.assert_not_called()
+        show_hint.assert_not_called()
+        self.assertIn("security.allow_printables_bundle", show_error.call_args.args[0])
+
+    def test_zip_in_allowed_extensions_still_shows_bundle_hint(self) -> None:
+        config = {
+            "security": {
+                "allowed_extensions": [".stl", ".zip"],
+                "allow_plain_http": False,
+                "allow_any_original_host": True,
+                "allow_local_resolved_hosts": False,
+                "allow_printables_bundle": True,
+                "post_process_action": "warn",
+                "allowed_hosts": [],
+            },
+            "bambu_studio": {},
+        }
+
+        with temporary_directory() as temp_dir:
+            archive = Path(temp_dir) / "pack.zip"
+            with zipfile.ZipFile(archive, "w") as bundle:
+                bundle.writestr("first.stl", b"solid first\n")
+
+            with (
+                patch("slicer_uri_bridge.handler.load_config", return_value=config),
+                patch("slicer_uri_bridge.handler.validate_remote_url"),
+                patch("slicer_uri_bridge.handler.resolve_bambu_command", return_value=["bambu-studio"]),
+                patch("slicer_uri_bridge.handler.download_model", return_value=archive),
+                patch("slicer_uri_bridge.handler.launch_bambu") as launch,
+                patch("slicer_uri_bridge.handler.show_bundle_hint") as show_hint,
+                patch("slicer_uri_bridge.handler.show_error") as show_error,
+            ):
+                exit_code = main(["bambustudioopen://https%3A%2F%2Ffiles.example%2Fdownload"])
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual([path.name for path in launch.call_args.args[1]], ["first.stl"])
+        show_hint.assert_called_once()
+        show_error.assert_not_called()
+
 
 class FilenameTests(unittest.TestCase):
+    def test_is_zip_filename_uses_suffix(self) -> None:
+        self.assertTrue(is_zip_filename("pack.zip"))
+        self.assertTrue(is_zip_filename("Pack.ZIP"))
+        self.assertFalse(is_zip_filename("download"))
+        self.assertFalse(is_zip_filename(None))
+
     def test_filename_from_url_prefers_query_name_basename(self) -> None:
         self.assertEqual(
             filename_from_url("https://files.example/download?name=folder%2Fmodel%20v2.3mf"),
@@ -516,12 +678,10 @@ class ProtocolFileTests(unittest.TestCase):
 
 
 class LaunchTests(unittest.TestCase):
-    def test_macos_app_resolves_its_executable(self) -> None:
+    def test_macos_app_uses_bundle_launcher(self) -> None:
         with temporary_directory() as temp_dir:
             app = Path(temp_dir) / "Custom Bambu.app"
-            executable = app / "Contents" / "MacOS" / "BambuStudio"
-            executable.parent.mkdir(parents=True)
-            executable.touch()
+            app.mkdir()
             config = {"bambu_studio": {"macos": str(app)}}
 
             with (
@@ -530,9 +690,9 @@ class LaunchTests(unittest.TestCase):
             ):
                 command = resolve_bambu_command(config)
 
-        self.assertEqual(command, [str(executable)])
+        self.assertEqual(command, ["open", "-a", str(app)])
 
-    def test_macos_app_without_executable_uses_default_opener(self) -> None:
+    def test_missing_macos_app_uses_default_opener(self) -> None:
         with temporary_directory() as temp_dir:
             app = Path(temp_dir) / "Missing Bambu.app"
             config = {"bambu_studio": {"macos": str(app)}}

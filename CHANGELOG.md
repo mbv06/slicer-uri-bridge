@@ -6,7 +6,7 @@ All notable changes to this project are documented here.
 
 ### Added
 
-- Add support for Printables model-pack ZIP links: only STL files are extracted and opened as separate models using the user's current Bambu Studio presets.
+- Add support for Printables model-pack ZIP links: only STL files are extracted and opened as separate models using the user's current Bambu Studio presets. Packs with more than 128 STL files, or more than 16 files that share a sanitized name, are rejected.
 - Show a hint to keep the STL files as separate objects and press `A` in Bambu Studio to arrange them for the selected printer.
 - Add `security.allow_printables_bundle`, enabled by default, to allow disabling model-pack ZIP downloads.
 - Add config upgrade on `init-config`: missing options from the bundled template are added to an existing `config.toml` without overwriting current values.
