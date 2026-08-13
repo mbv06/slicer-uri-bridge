@@ -25,7 +25,6 @@ from slicer_uri_bridge.handler import (
     main,
     normalize_host,
     normalize_post_process_action,
-    prepare_model_path,
     read_protocol_uri,
     resolve_bambu_command,
     scan_3mf_post_process,
@@ -169,6 +168,47 @@ class MainLoggingTests(unittest.TestCase):
         self.assertEqual(exit_code, 1)
         download.assert_not_called()
         self.assertIn("security.allow_printables_bundle", show_error.call_args.args[0])
+
+    def test_printables_bundle_opens_stls_and_shows_arrange_hint(self) -> None:
+        config = {
+            "security": {
+                "allowed_extensions": [".stl"],
+                "allow_plain_http": False,
+                "allow_any_original_host": True,
+                "allow_local_resolved_hosts": False,
+                "allow_printables_bundle": True,
+                "post_process_action": "warn",
+                "allowed_hosts": [],
+            },
+            "bambu_studio": {},
+        }
+
+        with temporary_directory() as temp_dir:
+            archive = Path(temp_dir) / "models.zip"
+            with zipfile.ZipFile(archive, "w") as bundle:
+                bundle.writestr("first.stl", b"solid first\n")
+                bundle.writestr("manual.pdf", b"ignored")
+
+            with (
+                patch("slicer_uri_bridge.handler.load_config", return_value=config),
+                patch("slicer_uri_bridge.handler.validate_remote_url"),
+                patch("slicer_uri_bridge.handler.resolve_bambu_command", return_value=["bambu-studio"]),
+                patch("slicer_uri_bridge.handler.download_model", return_value=archive),
+                patch("slicer_uri_bridge.handler.launch_bambu") as launch,
+                patch("slicer_uri_bridge.handler.show_bundle_hint") as show_hint,
+                patch("slicer_uri_bridge.handler.show_error") as show_error,
+            ):
+                order: list[str] = []
+                show_hint.side_effect = lambda *_args, **_kwargs: order.append("hint")
+                launch.side_effect = lambda *_args, **_kwargs: order.append("launch")
+                exit_code = main(["bambustudioopen://https%3A%2F%2Ffiles.printables.com%2Fmedia%2Fmodels.zip%2F"])
+
+        self.assertEqual(exit_code, 0)
+        model_paths = launch.call_args.args[1]
+        self.assertEqual([path.name for path in model_paths], ["first.stl"])
+        self.assertEqual(order, ["hint", "launch"])
+        show_hint.assert_called_once()
+        show_error.assert_not_called()
 
 
 class FilenameTests(unittest.TestCase):
@@ -505,26 +545,33 @@ class LaunchTests(unittest.TestCase):
 
         self.assertEqual(command, ["open"])
 
-    def test_fallback_opener_cannot_convert_zip_pack(self) -> None:
-        with temporary_directory() as temp_dir:
-            archive = Path(temp_dir) / "models.zip"
-            archive.write_bytes(b"zip")
+    def test_xdg_open_cannot_open_multiple_files(self) -> None:
+        paths = [Path("/tmp/first.stl"), Path("/tmp/second.stl")]
 
-            with self.assertRaisesRegex(BridgeError, "Configure bambu_studio."):
-                prepare_model_path(archive, ["open"])
-            with self.assertRaisesRegex(BridgeError, "Configure bambu_studio."):
-                prepare_model_path(archive, ["/usr/bin/xdg-open"])
-            with self.assertRaisesRegex(BridgeError, "Configure bambu_studio."):
-                prepare_model_path(archive, ["/usr/bin/gio", "open"])
+        with self.assertRaisesRegex(BridgeError, "Configure bambu_studio."):
+            launch_bambu(["/usr/bin/xdg-open"], paths)
+
+        with (
+            patch("slicer_uri_bridge.handler.IS_WINDOWS", False),
+            patch("slicer_uri_bridge.handler.subprocess.Popen") as popen,
+        ):
+            launch_bambu(["open"], paths)
+            launch_bambu(["/usr/bin/gio", "open"], paths)
+
+        self.assertEqual(popen.call_count, 2)
 
     def test_launch_bambu_detaches_output_streams(self) -> None:
         with (
             patch("slicer_uri_bridge.handler.IS_WINDOWS", False),
             patch("slicer_uri_bridge.handler.subprocess.Popen") as popen,
         ):
-            launch_bambu(["bambu-studio"], Path("/tmp/model.stl"))
+            launch_bambu(["bambu-studio"], [Path("/tmp/first.stl"), Path("/tmp/second.stl")])
 
-        _, kwargs = popen.call_args
+        args, kwargs = popen.call_args
+        self.assertEqual(
+            args[0],
+            ["bambu-studio", str(Path("/tmp/first.stl")), str(Path("/tmp/second.stl"))],
+        )
         self.assertEqual(kwargs["stdin"], subprocess.DEVNULL)
         self.assertEqual(kwargs["stdout"], subprocess.DEVNULL)
         self.assertEqual(kwargs["stderr"], subprocess.DEVNULL)

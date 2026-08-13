@@ -4,7 +4,7 @@
 allow_plain_http = false
 allow_any_original_host = true
 allow_local_resolved_hosts = false
-# Allow Printables all-model-files ZIPs to be converted into a Bambu Studio project.
+# Allow Printables all-model-files ZIPs to be opened as separate STL models in Bambu Studio.
 allow_printables_bundle = true
 allowed_extensions = [".3mf", ".stl", ".step", ".stp", ".obj"]
 # 3MF files can contain Bambu/Orca post-processing commands.

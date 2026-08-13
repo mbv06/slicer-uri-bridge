@@ -9,9 +9,7 @@ from contextlib import contextmanager
 from io import BytesIO
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-from xml.etree import ElementTree
 
-from slicer_uri_bridge.bambu_project import match_object_ids, replace_plates
 from slicer_uri_bridge.files import safe_filename
 from slicer_uri_bridge.stl_archive import extract_stl_archive
 
@@ -39,6 +37,8 @@ class StlArchiveTests(unittest.TestCase):
             with zipfile.ZipFile(archive_path, "w") as archive:
                 archive.writestr("models/part.STL", b"solid first\n")
                 archive.writestr("other/part.STL", b"solid second\n")
+                archive.writestr("__MACOSX/models/._part.STL", b"not a model")
+                archive.writestr("._hidden.stl", b"not a model")
                 archive.writestr("model.obj", b"ignored")
                 archive.writestr("model.step", b"ignored")
                 archive.writestr("project.3mf", b"ignored")
@@ -55,18 +55,48 @@ class StlArchiveTests(unittest.TestCase):
                 archive.writestr("model.obj", b"ignored")
                 archive.writestr("project.3mf", b"ignored")
 
-            with self.assertRaisesRegex(ValueError, "found 0"):
+            with self.assertRaisesRegex(ValueError, "at least one STL file"):
                 extract_stl_archive(archive_path, folder / "stl")
 
-    def test_rejects_more_than_36_stl_files(self) -> None:
+    def test_ignores_macos_appledouble_stl_stubs(self) -> None:
+        with temporary_directory() as folder:
+            archive_path = folder / "models.zip"
+            with zipfile.ZipFile(archive_path, "w") as archive:
+                archive.writestr("__MACOSX/models/._part.stl", b"not a model")
+                archive.writestr("._part.stl", b"not a model")
+
+            with self.assertRaisesRegex(ValueError, "at least one STL file"):
+                extract_stl_archive(archive_path, folder / "stl")
+
+    def test_skips_symlinks_and_keeps_stl_inside_destination(self) -> None:
+        with temporary_directory() as folder:
+            archive_path = folder / "models.zip"
+            link = zipfile.ZipInfo("link.stl")
+            link.create_system = 3
+            link.external_attr = 0o120777 << 16
+            with zipfile.ZipFile(archive_path, "w") as archive:
+                archive.writestr(link, b"/tmp/evil.stl")
+                archive.writestr("../escape.stl", b"solid escaped\n")
+                archive.writestr("models/../../also.stl", b"solid also\n")
+
+            destination = folder / "stl"
+            extracted = extract_stl_archive(archive_path, destination)
+
+            self.assertEqual(sorted(path.name for path in extracted), ["also.stl", "escape.stl"])
+            self.assertTrue(all(path.parent == destination.resolve() for path in extracted))
+            self.assertFalse((folder / "escape.stl").exists())
+            self.assertFalse((destination / "link.stl").exists())
+
+    def test_extracts_more_than_36_stl_files(self) -> None:
         with temporary_directory() as folder:
             archive_path = folder / "models.zip"
             with zipfile.ZipFile(archive_path, "w") as archive:
                 for index in range(37):
                     archive.writestr(f"part-{index}.stl", b"solid model\n")
 
-            with self.assertRaisesRegex(ValueError, "between 1 and 36 STL files"):
-                extract_stl_archive(archive_path, folder / "stl")
+            extracted = extract_stl_archive(archive_path, folder / "stl")
+
+            self.assertEqual(len(extracted), 37)
 
     def test_enforces_size_limit_while_extracting(self) -> None:
         entry = zipfile.ZipInfo("model.stl")
@@ -83,25 +113,3 @@ class StlArchiveTests(unittest.TestCase):
                 self.assertRaisesRegex(ValueError, "exceed the size limit"),
             ):
                 extract_stl_archive(folder / "models.zip", folder / "stl")
-
-
-class BambuProjectTests(unittest.TestCase):
-    def test_object_name_mismatch_reports_expected_and_found_names(self) -> None:
-        settings = ElementTree.fromstring(
-            '<config><object id="2"><metadata key="name" value="first"/></object></config>'
-        )
-
-        with self.assertRaisesRegex(RuntimeError, r"Expected names: \['first\.stl'\]; found names: \['first'\]"):
-            match_object_ids(settings, [Path("first.stl")])
-
-    def test_creates_named_plates(self) -> None:
-        settings = ElementTree.fromstring("<config><plate/><assemble/></config>")
-        stl_paths = [Path("first.stl"), Path("second.stl")]
-
-        replace_plates(settings, ["2", "4"], stl_paths)
-
-        plate_names = [
-            next(metadata.get("value") for metadata in plate if metadata.get("key") == "plater_name")
-            for plate in settings.findall("plate")
-        ]
-        self.assertEqual(plate_names, ["first.stl", "second.stl"])

@@ -22,9 +22,10 @@ import zipfile
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from .bambu_project import build_bambu_project
 from .config import missing_config_message, user_config_path, user_log_path
 from .files import BUFFER_SIZE, MAX_MODEL_BYTES, STL_SUFFIX, ZIP_SUFFIX, available_destination, safe_filename
+from .stl_archive import extract_stl_archive
+from .ui import show_bundle_hint, show_error, show_warning
 
 CONFIG_FILE = user_config_path()
 LOG_FILE = user_log_path()
@@ -509,16 +510,15 @@ def validate_downloaded_file(path: Path) -> None:
         raise BridgeError("Downloaded file is a Mach-O executable, refusing to open it.")
 
 
-def prepare_model_path(path: Path, command: list[str]) -> Path:
+def prepare_model_paths(path: Path) -> list[Path]:
     if path.suffix.lower() != ZIP_SUFFIX:
-        return path
-    if is_fallback_open_command(command):
-        raise BridgeError(
-            "Printables STL bundles require Bambu Studio. "
-            f"Configure bambu_studio.{platform_config_key()} with the path to Bambu Studio."
-        )
-    output_path = available_destination(path.parent, f"{path.stem}.3mf")
-    return build_bambu_project(path, output_path, command)
+        return [path]
+    destination = Path(tempfile.mkdtemp(prefix=".slicer-uri-bridge-stl-", dir=path.parent))
+    try:
+        return extract_stl_archive(path, destination)
+    except Exception:
+        shutil.rmtree(destination, ignore_errors=True)
+        raise
 
 
 def scan_3mf_post_process(path: Path) -> list[str] | None:
@@ -631,8 +631,8 @@ def resolve_default_open_command() -> list[str]:
     raise BridgeError("No default file opener found. Configure bambu_studio.linux.")
 
 
-def is_fallback_open_command(command: list[str]) -> bool:
-    return bool(command) and Path(command[0]).name.lower() in {"open", "xdg-open", "gio"}
+def is_single_file_opener(command: list[str]) -> bool:
+    return bool(command) and Path(command[0]).name.lower() == "xdg-open"
 
 
 def detached_process_kwargs() -> dict:
@@ -646,32 +646,17 @@ def detached_process_kwargs() -> dict:
     return kwargs
 
 
-def launch_bambu(command: list[str], model_path: Path) -> None:
+def launch_bambu(command: list[str], model_paths: list[Path]) -> None:
+    if len(model_paths) > 1 and is_single_file_opener(command):
+        raise BridgeError(
+            "Printables STL bundles require Bambu Studio. "
+            f"Configure bambu_studio.{platform_config_key()} with the path to Bambu Studio."
+        )
     try:
-        subprocess.Popen([*command, str(model_path)], **detached_process_kwargs())
-        logger.info(f"Opened Bambu Studio with file: {model_path}")
+        subprocess.Popen([*command, *(str(path) for path in model_paths)], **detached_process_kwargs())
+        logger.info("Opened Bambu Studio with %d file(s)", len(model_paths))
     except OSError as exc:
         raise BridgeError(f"Failed to start Bambu Studio: {exc}") from exc
-
-
-def show_message(message: str, kind: str) -> None:
-    print(message, file=sys.stderr)
-    with contextlib.suppress(Exception):
-        import tkinter
-        from tkinter import messagebox
-
-        root = tkinter.Tk()
-        root.withdraw()
-        getattr(messagebox, kind)("Slicer URI Bridge", message)
-        root.destroy()
-
-
-def show_error(message: str) -> None:
-    show_message(message, "showerror")
-
-
-def show_warning(message: str) -> None:
-    show_message(message, "showwarning")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -679,7 +664,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
     uri: str | None = None
     downloaded_path: Path | None = None
-    model_path: Path | None = None
+    model_paths: list[Path] = []
+    extract_dir: Path | None = None
     download_folder: Path | None = None
 
     try:
@@ -732,22 +718,26 @@ def main(argv: list[str] | None = None) -> int:
             allow_local_resolved_hosts=allow_local_resolved_hosts,
         )
         validate_downloaded_file(downloaded_path)
-        model_path = prepare_model_path(downloaded_path, command)
-        check_3mf_post_process(model_path, security["post_process_action"])
+        model_paths = prepare_model_paths(downloaded_path)
+        if model_paths[0] != downloaded_path:
+            extract_dir = model_paths[0].parent
+        check_3mf_post_process(downloaded_path, security["post_process_action"])
 
-        launch_bambu(command, model_path)
+        if is_bundle:
+            show_bundle_hint()
+        launch_bambu(command, model_paths)
 
         return 0
     except Exception as exc:
         logger.error(f"Failed: {exc}")
-        # Bundle conversion has both the downloaded ZIP and generated 3MF; for normal downloads these paths coincide.
-        cleanup_paths = set(filter(None, (model_path, downloaded_path)))
-        for local_path in cleanup_paths:
+        if extract_dir is not None:
+            shutil.rmtree(extract_dir, ignore_errors=True)
+        if downloaded_path is not None:
             with contextlib.suppress(OSError):
-                local_path.unlink()
+                downloaded_path.unlink()
             if download_folder is None:
                 with contextlib.suppress(OSError):
-                    local_path.parent.rmdir()
+                    downloaded_path.parent.rmdir()
         show_error(str(exc))
         return 1
 
