@@ -194,7 +194,7 @@ function Save-InstallerDownload {
 
     [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
     $ProgressPreference = 'SilentlyContinue'
-    Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing -Headers @{
+    Invoke-WebRequest -Uri $Url -OutFile $OutFile -TimeoutSec 60 -UseBasicParsing -Headers @{
         'User-Agent' = 'slicer-uri-bridge-installer'
     }
 }

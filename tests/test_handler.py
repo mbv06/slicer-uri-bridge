@@ -211,6 +211,44 @@ class MainLoggingTests(unittest.TestCase):
         show_hint.assert_called_once()
         show_error.assert_not_called()
 
+    def test_printables_bundle_rejects_invalid_stl_before_launch(self) -> None:
+        config = {
+            "security": {
+                "allowed_extensions": [".stl"],
+                "allow_plain_http": False,
+                "allow_any_original_host": True,
+                "allow_local_resolved_hosts": False,
+                "allow_printables_bundle": True,
+                "post_process_action": "warn",
+                "allowed_hosts": [],
+            },
+            "bambu_studio": {},
+        }
+
+        for payload, expected_error in ((b"", "empty"), (b"MZ\x90\x00", "Windows executable")):
+            with self.subTest(expected_error=expected_error), temporary_directory() as temp_dir:
+                archive = Path(temp_dir) / "models.zip"
+                with zipfile.ZipFile(archive, "w") as bundle:
+                    bundle.writestr("invalid.stl", payload)
+
+                with (
+                    patch("slicer_uri_bridge.handler.load_config", return_value=config),
+                    patch("slicer_uri_bridge.handler.validate_remote_url"),
+                    patch("slicer_uri_bridge.handler.resolve_bambu_command", return_value=["bambu-studio"]),
+                    patch("slicer_uri_bridge.handler.download_model", return_value=archive),
+                    patch("slicer_uri_bridge.handler.launch_bambu") as launch,
+                    patch("slicer_uri_bridge.handler.show_bundle_hint") as show_hint,
+                    patch("slicer_uri_bridge.handler.show_error") as show_error,
+                ):
+                    exit_code = main(
+                        ["bambustudioopen://https%3A%2F%2Ffiles.printables.com%2Fmedia%2Fmodels.zip%2F"]
+                    )
+
+                self.assertEqual(exit_code, 1)
+                launch.assert_not_called()
+                show_hint.assert_not_called()
+                self.assertIn(expected_error, show_error.call_args.args[0])
+
     def test_query_zip_name_is_disabled_before_download(self) -> None:
         config = {
             "security": {
@@ -664,6 +702,30 @@ allowed_extensions = [".3mf"]
         self.assertFalse(config["security"].get("allow_local_resolved_hosts", False))
         self.assertTrue(config["security"].get("allow_printables_bundle", True))
 
+    def test_load_config_disables_bundle_for_invalid_explicit_value(self) -> None:
+        with temporary_directory() as temp_dir:
+            config_path = Path(temp_dir) / "config.toml"
+            config_path.write_text(
+                """\
+[security]
+allow_any_original_host = true
+allow_printables_bundle = "false"
+allowed_extensions = [".stl"]
+
+[bambu_studio]
+""",
+                encoding="utf-8",
+            )
+
+            with (
+                patch("slicer_uri_bridge.handler.CONFIG_FILE", config_path),
+                self.assertLogs("slicer_uri_bridge", level="WARNING") as captured,
+            ):
+                config = load_config()
+
+        self.assertFalse(config["security"]["allow_printables_bundle"])
+        self.assertTrue(any("allow_printables_bundle; using false" in line for line in captured.output))
+
 
 class ProtocolFileTests(unittest.TestCase):
     def test_read_protocol_uri_decodes_bom_and_removes_temp_file(self) -> None:
@@ -736,6 +798,18 @@ class LaunchTests(unittest.TestCase):
         self.assertEqual(kwargs["stdout"], subprocess.DEVNULL)
         self.assertEqual(kwargs["stderr"], subprocess.DEVNULL)
         self.assertIs(kwargs["start_new_session"], True)
+
+    def test_windows_rejects_bundle_command_over_createprocess_limit(self) -> None:
+        paths = [Path("C:/models") / f"{index:03}-{'x' * 245}.stl" for index in range(128)]
+
+        with (
+            patch("slicer_uri_bridge.handler.IS_WINDOWS", True),
+            patch("slicer_uri_bridge.handler.subprocess.Popen") as popen,
+            self.assertRaisesRegex(BridgeError, "Windows command-line limit"),
+        ):
+            launch_bambu([r"C:\Program Files\Bambu Studio\bambu-studio.exe"], paths)
+
+        popen.assert_not_called()
 
 
 class HostNormalizationTests(unittest.TestCase):

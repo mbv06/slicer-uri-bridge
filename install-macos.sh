@@ -215,8 +215,9 @@ main() {
 
   log "Installing / upgrading Slicer URI Bridge"
   "${VENV}/bin/python" -m pip install --upgrade pip
+  local work_dir
   work_dir="$(mktemp -d "${TMPDIR:-/tmp}/slicer-uri-bridge-install.XXXXXX")"
-  trap 'rm -rf "$work_dir"' EXIT
+  trap "rm -rf -- $(printf '%q' "$work_dir")" EXIT
   resolve_install_sources "$PROJECT_SPEC" "$work_dir"
   "${VENV}/bin/python" -m pip install --require-hashes -r "$LOCK_FILE"
   "${VENV}/bin/python" -m pip install --no-deps --upgrade "$INSTALL_SPEC"

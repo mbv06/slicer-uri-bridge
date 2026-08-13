@@ -125,6 +125,14 @@ linux = "c"
         self.assertIn("security.allow_plain_http", added)
         self.assertIn("bambu_studio.linux", added)
 
+    def test_comment_only_config_keeps_comments_and_adds_defaults(self) -> None:
+        updated, added = upgrade_config_text("# keep this note\n", DEFAULT)
+        self.assertIn("security.allow_plain_http", added)
+        self.assertIn("bambu_studio.linux", added)
+        self.assertIn("# keep this note", updated)
+        self.assertIn("[security]", updated)
+        self.assertIn("allow_printables_bundle = true", updated)
+
     def test_does_not_merge_list_values(self) -> None:
         user = """[security]
 allow_plain_http = false

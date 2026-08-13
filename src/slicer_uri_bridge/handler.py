@@ -39,6 +39,7 @@ EXECUTABLE_MODE_BITS = stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
 PROJECT_SETTINGS_PATH = "Metadata/project_settings.config"
 POST_PROCESS_ACTION_DEFAULT = "warn"
 POST_PROCESS_ACTIONS = {"ignore", "warn", "block"}
+WINDOWS_COMMAND_LINE_LIMIT = 32767
 
 
 class BridgeError(RuntimeError):
@@ -125,8 +126,8 @@ def load_config() -> dict:
         security["allow_local_resolved_hosts"] = False
 
     if not isinstance(security.get("allow_printables_bundle", True), bool):
-        logger.warning("Invalid security.allow_printables_bundle; using true")
-        security["allow_printables_bundle"] = True
+        logger.warning("Invalid security.allow_printables_bundle; using false")
+        security["allow_printables_bundle"] = False
 
     security["post_process_action"] = normalize_post_process_action(security.get("post_process_action"))
 
@@ -662,8 +663,14 @@ def launch_bambu(command: list[str], model_paths: list[Path]) -> None:
             "Printables STL bundles require Bambu Studio. "
             f"Configure bambu_studio.{platform_config_key()} with the path to Bambu Studio."
         )
+    arguments = [*command, *(str(path) for path in model_paths)]
+    if IS_WINDOWS and len(subprocess.list2cmdline(arguments)) >= WINDOWS_COMMAND_LINE_LIMIT:
+        raise BridgeError(
+            "The Bambu Studio command exceeds the Windows command-line limit. "
+            "Use a shorter download_folder or a model pack with fewer or shorter STL filenames."
+        )
     try:
-        subprocess.Popen([*command, *(str(path) for path in model_paths)], **detached_process_kwargs())
+        subprocess.Popen(arguments, **detached_process_kwargs())
         logger.info("Opened Bambu Studio with %d file(s)", len(model_paths))
     except OSError as exc:
         raise BridgeError(f"Failed to start Bambu Studio: {exc}") from exc
@@ -735,6 +742,9 @@ def main(argv: list[str] | None = None) -> int:
         model_paths = prepare_model_paths(downloaded_path)
         if model_paths[0] != downloaded_path:
             extract_dir = model_paths[0].parent
+        if is_bundle:
+            for model_path in model_paths:
+                validate_downloaded_file(model_path)
         check_3mf_post_process(downloaded_path, security["post_process_action"])
 
         if is_bundle:

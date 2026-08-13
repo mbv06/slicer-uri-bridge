@@ -121,7 +121,7 @@ def upgrade_config_text(user_text: str, default_text: str | None = None) -> tupl
     default_text = default_config_text() if default_text is None else default_text
     user_doc = parse_toml(user_text)
     default_doc = parse_toml(default_text)
-    if not user_doc:
+    if not user_text.strip():
         text = default_text if default_text.endswith("\n") else f"{default_text}\n"
         return text, _leaf_paths(default_doc, ())
 
