@@ -25,7 +25,9 @@ from slicer_uri_bridge.handler import (
     main,
     normalize_host,
     normalize_post_process_action,
+    prepare_model_path,
     read_protocol_uri,
+    resolve_bambu_command,
     scan_3mf_post_process,
     validate_downloaded_file,
     validate_remote_url,
@@ -59,6 +61,14 @@ class DownloadUriTests(unittest.TestCase):
 
         self.assertEqual(url, "https://files.example/models/benchy.3mf")
         self.assertIsNone(suggested_name)
+
+    def test_bambu_uri_strips_printables_zip_pack_slash(self) -> None:
+        url, _ = extract_download(
+            "bambustudioopen://https%3A%2F%2Ffiles.printables.com%2Fmedia%2Fmodels.zip%2F",
+            {".stl"},
+        )
+
+        self.assertEqual(url, "https://files.printables.com/media/models.zip")
 
     def test_query_style_uri_extracts_file_and_name(self) -> None:
         url, suggested_name = extract_download(
@@ -136,6 +146,29 @@ class MainLoggingTests(unittest.TestCase):
         self.assertEqual(exit_code, 1)
         self.assertTrue(any("Input URI: 'prusaslicer://open?file=%20%20'" in line for line in captured.output))
         self.assertTrue(any("Failed: Invalid prusaslicer URI." in line for line in captured.output))
+
+    def test_printables_bundle_can_be_disabled_before_download(self) -> None:
+        config = {
+            "security": {
+                "allowed_extensions": [".stl"],
+                "allow_plain_http": False,
+                "allow_any_original_host": True,
+                "allow_local_resolved_hosts": False,
+                "allow_printables_bundle": False,
+            },
+            "bambu_studio": {},
+        }
+
+        with (
+            patch("slicer_uri_bridge.handler.load_config", return_value=config),
+            patch("slicer_uri_bridge.handler.download_model") as download,
+            patch("slicer_uri_bridge.handler.show_error") as show_error,
+        ):
+            exit_code = main(["bambustudioopen://https%3A%2F%2Ffiles.printables.com%2Fmedia%2Fmodels.zip%2F"])
+
+        self.assertEqual(exit_code, 1)
+        download.assert_not_called()
+        self.assertIn("security.allow_printables_bundle", show_error.call_args.args[0])
 
 
 class FilenameTests(unittest.TestCase):
@@ -427,6 +460,7 @@ allowed_extensions = [".3mf"]
 
         self.assertEqual(config["security"]["post_process_action"], "warn")
         self.assertFalse(config["security"].get("allow_local_resolved_hosts", False))
+        self.assertTrue(config["security"].get("allow_printables_bundle", True))
 
 
 class ProtocolFileTests(unittest.TestCase):
@@ -442,6 +476,47 @@ class ProtocolFileTests(unittest.TestCase):
 
 
 class LaunchTests(unittest.TestCase):
+    def test_macos_app_resolves_its_executable(self) -> None:
+        with temporary_directory() as temp_dir:
+            app = Path(temp_dir) / "Custom Bambu.app"
+            executable = app / "Contents" / "MacOS" / "BambuStudio"
+            executable.parent.mkdir(parents=True)
+            executable.touch()
+            config = {"bambu_studio": {"macos": str(app)}}
+
+            with (
+                patch("slicer_uri_bridge.handler.IS_WINDOWS", False),
+                patch("slicer_uri_bridge.handler.IS_MACOS", True),
+            ):
+                command = resolve_bambu_command(config)
+
+        self.assertEqual(command, [str(executable)])
+
+    def test_macos_app_without_executable_uses_default_opener(self) -> None:
+        with temporary_directory() as temp_dir:
+            app = Path(temp_dir) / "Missing Bambu.app"
+            config = {"bambu_studio": {"macos": str(app)}}
+
+            with (
+                patch("slicer_uri_bridge.handler.IS_WINDOWS", False),
+                patch("slicer_uri_bridge.handler.IS_MACOS", True),
+            ):
+                command = resolve_bambu_command(config)
+
+        self.assertEqual(command, ["open"])
+
+    def test_fallback_opener_cannot_convert_zip_pack(self) -> None:
+        with temporary_directory() as temp_dir:
+            archive = Path(temp_dir) / "models.zip"
+            archive.write_bytes(b"zip")
+
+            with self.assertRaisesRegex(BridgeError, "Configure bambu_studio."):
+                prepare_model_path(archive, ["open"])
+            with self.assertRaisesRegex(BridgeError, "Configure bambu_studio."):
+                prepare_model_path(archive, ["/usr/bin/xdg-open"])
+            with self.assertRaisesRegex(BridgeError, "Configure bambu_studio."):
+                prepare_model_path(archive, ["/usr/bin/gio", "open"])
+
     def test_launch_bambu_detaches_output_streams(self) -> None:
         with (
             patch("slicer_uri_bridge.handler.IS_WINDOWS", False),

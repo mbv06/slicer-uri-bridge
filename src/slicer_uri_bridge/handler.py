@@ -7,7 +7,6 @@ import ipaddress
 import json
 import logging
 import posixpath
-import re
 import shutil
 import socket
 import stat
@@ -20,10 +19,12 @@ import urllib.parse
 import urllib.request
 import urllib.response
 import zipfile
-from pathlib import Path, PurePosixPath, PureWindowsPath
+from pathlib import Path
 from urllib.parse import urlsplit
 
+from .bambu_project import build_bambu_project
 from .config import missing_config_message, user_config_path, user_log_path
+from .files import BUFFER_SIZE, MAX_MODEL_BYTES, STL_SUFFIX, ZIP_SUFFIX, available_destination, safe_filename
 
 CONFIG_FILE = user_config_path()
 LOG_FILE = user_log_path()
@@ -32,8 +33,6 @@ USER_AGENT = "OrcaSlicer/2.4.0-dev"
 IS_WINDOWS = sys.platform == "win32"
 IS_MACOS = sys.platform == "darwin"
 MAX_REDIRECTS = 5
-MAX_DOWNLOAD_BYTES = 200 * 1024 * 1024
-BUFFER_SIZE = 81920
 REDIRECT_CODES = {301, 302, 303, 307, 308}
 EXECUTABLE_MODE_BITS = stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
 PROJECT_SETTINGS_PATH = "Metadata/project_settings.config"
@@ -124,6 +123,10 @@ def load_config() -> dict:
         logger.warning("Invalid security.allow_local_resolved_hosts; using false")
         security["allow_local_resolved_hosts"] = False
 
+    if not isinstance(security.get("allow_printables_bundle", True), bool):
+        logger.warning("Invalid security.allow_printables_bundle; using true")
+        security["allow_printables_bundle"] = True
+
     security["post_process_action"] = normalize_post_process_action(security.get("post_process_action"))
 
     allowed_hosts = security.get("allowed_hosts", [])
@@ -207,7 +210,8 @@ def has_control_chars(value: str) -> bool:
 
 def strip_trailing_model_slash(url: str, allowed_extensions: set[str]) -> str:
     without_slash = url.rstrip("/")
-    if without_slash != url and any(without_slash.lower().endswith(ext) for ext in allowed_extensions):
+    extensions = allowed_extensions | {ZIP_SUFFIX}
+    if without_slash != url and any(without_slash.lower().endswith(ext) for ext in extensions):
         return without_slash
     return url
 
@@ -351,7 +355,7 @@ def download_folder_from_config(config: dict) -> Path | None:
 
 
 def build_destination(file_name: str, allowed_extensions: set[str], download_folder: Path | None) -> Path:
-    safe_name = safe_download_filename(file_name)
+    safe_name = safe_filename(file_name)
     suffix = Path(safe_name).suffix.lower()
     if not suffix:
         raise BridgeError(f"Could not determine file extension: {file_name}")
@@ -369,28 +373,6 @@ def build_destination(file_name: str, allowed_extensions: set[str], download_fol
         raise BridgeError(f"Could not create download folder: {folder}") from exc
 
     return available_destination(folder, safe_name)
-
-
-def safe_download_filename(file_name: str) -> str:
-    name = PureWindowsPath(PurePosixPath(file_name).name).name.strip()
-    name = re.sub(r'[\x00-\x1f\x7f<>:"/\\|?*]+', "_", name).strip(" .")
-    return name or "model"
-
-
-def available_destination(folder: Path, file_name: str) -> Path:
-    destination = folder / file_name
-    if not destination.exists():
-        return destination
-
-    path = Path(file_name)
-    stem = path.stem or "model"
-    suffix = path.suffix
-    index = 1
-    while True:
-        candidate = folder / f"{stem} ({index}){suffix}"
-        if not candidate.exists():
-            return candidate
-        index += 1
 
 
 def request_headers(url: str, referrer: str | None) -> dict[str, str]:
@@ -456,7 +438,7 @@ def download_model(
                     size = int(content_length)
                 except ValueError:
                     size = None
-                if size is not None and size > MAX_DOWNLOAD_BYTES:
+                if size is not None and size > MAX_MODEL_BYTES:
                     raise BridgeError(f"Download is too large: {size} bytes")
 
             file_name = choose_filename(
@@ -477,8 +459,8 @@ def download_model(
                     output_created = True
                     while chunk := response.read(BUFFER_SIZE):
                         total += len(chunk)
-                        if total > MAX_DOWNLOAD_BYTES:
-                            raise BridgeError(f"Download exceeded the size limit: {MAX_DOWNLOAD_BYTES} bytes")
+                        if total > MAX_MODEL_BYTES:
+                            raise BridgeError(f"Download exceeded the size limit: {MAX_MODEL_BYTES} bytes")
                         output.write(chunk)
             except Exception:
                 if output_created:
@@ -525,6 +507,18 @@ def validate_downloaded_file(path: Path) -> None:
     }
     if header[:4] in macho_magics:
         raise BridgeError("Downloaded file is a Mach-O executable, refusing to open it.")
+
+
+def prepare_model_path(path: Path, command: list[str]) -> Path:
+    if path.suffix.lower() != ZIP_SUFFIX:
+        return path
+    if is_fallback_open_command(command):
+        raise BridgeError(
+            "Printables STL bundles require Bambu Studio. "
+            f"Configure bambu_studio.{platform_config_key()} with the path to Bambu Studio."
+        )
+    output_path = available_destination(path.parent, f"{path.stem}.3mf")
+    return build_bambu_project(path, output_path, command)
 
 
 def scan_3mf_post_process(path: Path) -> list[str] | None:
@@ -595,9 +589,10 @@ def resolve_bambu_command(config: dict) -> list[str]:
     path = Path(configured_path).expanduser()
 
     if IS_MACOS and path.suffix.lower() == ".app":
-        if not path.exists():
-            return warn_and_resolve_default_open_command(f"Bambu Studio app not found: {path}")
-        return ["open", "-a", str(path), "--args"]
+        executable = path / "Contents" / "MacOS" / "BambuStudio"
+        if not executable.is_file():
+            return warn_and_resolve_default_open_command(f"Bambu Studio executable not found: {executable}")
+        return [str(executable)]
 
     if path.is_absolute() or path.parent != Path("."):
         if not path.exists():
@@ -634,6 +629,10 @@ def resolve_default_open_command() -> list[str]:
             return [resolved]
 
     raise BridgeError("No default file opener found. Configure bambu_studio.linux.")
+
+
+def is_fallback_open_command(command: list[str]) -> bool:
+    return bool(command) and Path(command[0]).name.lower() in {"open", "xdg-open", "gio"}
 
 
 def detached_process_kwargs() -> dict:
@@ -679,7 +678,8 @@ def main(argv: list[str] | None = None) -> int:
     setup_logging()
     args = parse_args(sys.argv[1:] if argv is None else argv)
     uri: str | None = None
-    local_path: Path | None = None
+    downloaded_path: Path | None = None
+    model_path: Path | None = None
     download_folder: Path | None = None
 
     try:
@@ -687,7 +687,7 @@ def main(argv: list[str] | None = None) -> int:
         security = config["security"]
         allow_plain_http = security.get("allow_plain_http", False)
         allow_local_resolved_hosts = security.get("allow_local_resolved_hosts", False)
-        allowed_extensions = security["allowed_extensions"]
+        allowed_extensions = set(security["allowed_extensions"])
         download_folder = download_folder_from_config(config)
 
         uri = resolve_protocol_uri(args)
@@ -701,6 +701,14 @@ def main(argv: list[str] | None = None) -> int:
             logger.error("Input URI: %r", uri)
             raise
         logger.info(f"Resolved input URI with download URL: {download_url}")
+
+        is_bundle = urllib.parse.unquote(urlsplit(download_url).path).lower().endswith(ZIP_SUFFIX)
+        if is_bundle and not security.get("allow_printables_bundle", True):
+            raise BridgeError("Printables model-pack downloads are disabled by security.allow_printables_bundle.")
+        if is_bundle and STL_SUFFIX not in allowed_extensions:
+            raise BridgeError("STL is not enabled in security.allowed_extensions.")
+        download_extensions = allowed_extensions | ({ZIP_SUFFIX} if is_bundle else set())
+
         allowed_hosts, allow_any_original_host = load_allowed_hosts(config)
         validate_remote_url(
             download_url,
@@ -713,25 +721,28 @@ def main(argv: list[str] | None = None) -> int:
 
         command = resolve_bambu_command(config)
 
-        local_path = download_model(
+        downloaded_path = download_model(
             download_url,
             suggested_name=suggested_name,
-            allowed_extensions=allowed_extensions,
+            allowed_extensions=download_extensions,
             download_folder=download_folder,
             allowed_hosts=allowed_hosts,
             allow_any_original_host=allow_any_original_host,
             allow_plain_http=allow_plain_http,
             allow_local_resolved_hosts=allow_local_resolved_hosts,
         )
-        validate_downloaded_file(local_path)
-        check_3mf_post_process(local_path, security["post_process_action"])
+        validate_downloaded_file(downloaded_path)
+        model_path = prepare_model_path(downloaded_path, command)
+        check_3mf_post_process(model_path, security["post_process_action"])
 
-        launch_bambu(command, local_path)
+        launch_bambu(command, model_path)
 
         return 0
     except Exception as exc:
         logger.error(f"Failed: {exc}")
-        if local_path:
+        # Bundle conversion has both the downloaded ZIP and generated 3MF; for normal downloads these paths coincide.
+        cleanup_paths = set(filter(None, (model_path, downloaded_path)))
+        for local_path in cleanup_paths:
             with contextlib.suppress(OSError):
                 local_path.unlink()
             if download_folder is None:

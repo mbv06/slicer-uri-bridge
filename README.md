@@ -129,12 +129,16 @@ python -m slicer_uri_bridge.handler "<incoming-uri>"
 
 The bridge reads the user config, validates the incoming URI, downloads the model to a temporary or configured folder, checks the file type, and opens the result in Bambu Studio.
 
+For an all-model-files ZIP such as the packs served by Printables, the bridge extracts only STL files and creates a Bambu Studio project with one STL per plate. Each plate is named after its STL file. Other archive entries are ignored and do not count toward Bambu Studio's 36-plate limit; packs with no STL files or more than 36 STL files are rejected. Set `allow_printables_bundle = false` to disable these ZIP downloads.
+
+On Printables, prefer the PrusaSlicer action when it offers a ready-made 3MF. That preserves the author's plate layout and project settings; the ZIP conversion flow is a fallback for links that provide only a model-file pack.
+
 The config file and log files are stored in:
 
 * Linux/macOS: `~/.config/slicer-uri-bridge/`
 * Windows: `%APPDATA%\slicer-uri-bridge\`
 
-If `XDG_CONFIG_HOME` is set on Linux or macOS, it is used instead of `~/.config`. The config includes allowed download hosts, allowed model file extensions, optional download folder, and platform-specific Bambu Studio paths. Print the active path with `slicer-uri-bridge config-path`.
+If `XDG_CONFIG_HOME` is set on Linux or macOS, it is used instead of `~/.config`. The config includes allowed download hosts, allowed model file extensions, optional download folder, and platform-specific Slicer paths. Print the active path with `slicer-uri-bridge config-path`.
 
 ## Security Model
 
@@ -146,6 +150,7 @@ The bridge validates downloads before opening them:
 * redirect targets are revalidated
 * downloaded files must use an allowed model extension
 * empty files and obvious executable formats are refused
+* Printables model-pack ZIP downloads can be disabled with `allow_printables_bundle`; only 1–36 STL entries are extracted, with a total-size limit
 * 3MF files are checked for embedded post-processing scripts ([scripts that can run after slicing](https://manual.slic3r.org/advanced/post-processing))
 
 By default, downloads are accepted from any host. To restrict downloads to specific hosts, set `allow_any_original_host = false` in the config and use the `allowed_hosts` list (the default config includes CDNs for Printables, Thingiverse, and Creality).
