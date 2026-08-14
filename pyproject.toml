@@ -31,7 +31,11 @@ slicer-uri-bridge = "slicer_uri_bridge.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-slicer_uri_bridge = ["resources/default_config.toml", "resources/macos-launcher.applescript"]
+slicer_uri_bridge = [
+    "resources/default_config.toml",
+    "resources/macos-dialog.applescript",
+    "resources/macos-launcher.applescript",
+]
 
 [tool.ruff]
 line-length = 120

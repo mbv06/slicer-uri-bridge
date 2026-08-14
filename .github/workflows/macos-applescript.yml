@@ -5,12 +5,14 @@ on:
     branches: [main]
     paths:
       - "src/slicer_uri_bridge/manager.py"
+      - "src/slicer_uri_bridge/resources/macos-dialog.applescript"
       - "src/slicer_uri_bridge/resources/macos-launcher.applescript"
       - "tests/test_manager_macos.py"
       - ".github/workflows/macos-applescript.yml"
   pull_request:
     paths:
       - "src/slicer_uri_bridge/manager.py"
+      - "src/slicer_uri_bridge/resources/macos-dialog.applescript"
       - "src/slicer_uri_bridge/resources/macos-launcher.applescript"
       - "tests/test_manager_macos.py"
       - ".github/workflows/macos-applescript.yml"
@@ -26,10 +28,10 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.13"
 
@@ -39,4 +41,4 @@ jobs:
           python -m pip install --no-deps -e .
 
       - name: Run macOS AppleScript tests
-        run: python -m unittest tests.test_manager_macos
+        run: python -m unittest tests.test_manager_macos tests.test_ui.MacOSDialogCompileTests
