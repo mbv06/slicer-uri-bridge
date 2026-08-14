@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "slicer-uri-bridge"
-version = "0.1.4"
+version = "0.1.5"
 description = "Register slicer URI handlers and bridge slicer links to your favorite slicer app."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -70,4 +70,4 @@ check_untyped_defs = true
 warn_redundant_casts = true
 warn_unused_ignores = true
 warn_return_any = true
-files = ["src", "tests"]
+files = ["src", "tests", "scripts"]
