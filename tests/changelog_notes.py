@@ -5,7 +5,7 @@ import re
 import sys
 from pathlib import Path
 
-DEV_RELEASE_NOTES = "Rolling development build from the `dev` branch.\n"
+DEV_RELEASE_NOTES = "Rolling development build from the `develop` branch.\n"
 TAG_PATTERN = re.compile(r"^v[0-9][0-9A-Za-z.-]*$")
 
 
