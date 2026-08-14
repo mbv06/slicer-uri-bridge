@@ -528,9 +528,12 @@ def prepare_model_paths(path: Path) -> list[Path]:
     destination = Path(tempfile.mkdtemp(prefix=".slicer-uri-bridge-stl-", dir=path.parent))
     try:
         return extract_stl_archive(path, destination)
-    except Exception:
+    except Exception as exc:
         shutil.rmtree(destination, ignore_errors=True)
-        raise
+        if isinstance(exc, BridgeError):
+            raise
+        detail = str(exc).strip() or type(exc).__name__
+        raise BridgeError(f"Could not open the model pack.\n\n{detail}") from exc
 
 
 def scan_3mf_post_process(path: Path) -> list[str] | None:

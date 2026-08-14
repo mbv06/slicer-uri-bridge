@@ -249,6 +249,44 @@ class MainLoggingTests(unittest.TestCase):
                 show_hint.assert_not_called()
                 self.assertIn(expected_error, show_error.call_args.args[0])
 
+    def test_printables_bundle_without_stl_shows_error(self) -> None:
+        config = {
+            "security": {
+                "allowed_extensions": [".stl"],
+                "allow_plain_http": False,
+                "allow_any_original_host": True,
+                "allow_local_resolved_hosts": False,
+                "allow_printables_bundle": True,
+                "post_process_action": "warn",
+                "allowed_hosts": [],
+            },
+            "bambu_studio": {},
+        }
+
+        with temporary_directory() as temp_dir:
+            archive = Path(temp_dir) / "models.zip"
+            with zipfile.ZipFile(archive, "w") as bundle:
+                bundle.writestr("manual.pdf", b"ignored")
+                bundle.writestr("project.3mf", b"ignored")
+
+            with (
+                patch("slicer_uri_bridge.handler.load_config", return_value=config),
+                patch("slicer_uri_bridge.handler.validate_remote_url"),
+                patch("slicer_uri_bridge.handler.resolve_bambu_command", return_value=["bambu-studio"]),
+                patch("slicer_uri_bridge.handler.download_model", return_value=archive),
+                patch("slicer_uri_bridge.handler.launch_bambu") as launch,
+                patch("slicer_uri_bridge.handler.show_bundle_hint") as show_hint,
+                patch("slicer_uri_bridge.handler.show_error") as show_error,
+            ):
+                exit_code = main(["bambustudioopen://https%3A%2F%2Ffiles.printables.com%2Fmedia%2Fmodels.zip%2F"])
+
+        self.assertEqual(exit_code, 1)
+        launch.assert_not_called()
+        show_hint.assert_not_called()
+        message = show_error.call_args.args[0]
+        self.assertIn("Could not open the model pack.", message)
+        self.assertIn("at least one STL file", message)
+
     def test_query_zip_name_is_disabled_before_download(self) -> None:
         config = {
             "security": {
