@@ -2,12 +2,13 @@ name: macOS AppleScript
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
     paths:
       - "src/slicer_uri_bridge/manager.py"
       - "src/slicer_uri_bridge/resources/macos-dialog.applescript"
       - "src/slicer_uri_bridge/resources/macos-launcher.applescript"
       - "tests/test_manager_macos.py"
+      - "tests/test_macos_dialog.py"
       - ".github/workflows/macos-applescript.yml"
   pull_request:
     paths:
@@ -15,6 +16,7 @@ on:
       - "src/slicer_uri_bridge/resources/macos-dialog.applescript"
       - "src/slicer_uri_bridge/resources/macos-launcher.applescript"
       - "tests/test_manager_macos.py"
+      - "tests/test_macos_dialog.py"
       - ".github/workflows/macos-applescript.yml"
   workflow_dispatch:
 
@@ -41,4 +43,4 @@ jobs:
           python -m pip install --no-deps -e .
 
       - name: Run macOS AppleScript tests
-        run: python -m unittest tests.test_manager_macos tests.test_ui.MacOSDialogCompileTests
+        run: python -m unittest tests.test_manager_macos tests.test_macos_dialog

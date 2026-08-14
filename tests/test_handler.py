@@ -284,8 +284,8 @@ class MainLoggingTests(unittest.TestCase):
         launch.assert_not_called()
         show_hint.assert_not_called()
         message = show_error.call_args.args[0]
-        self.assertIn("Could not open the model pack.", message)
         self.assertIn("at least one STL file", message)
+        self.assertNotIn("Could not open the model pack.", message)
 
     def test_query_zip_name_is_disabled_before_download(self) -> None:
         config = {

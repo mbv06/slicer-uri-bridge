@@ -10,6 +10,7 @@ from io import BytesIO
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+from slicer_uri_bridge.exceptions import BridgeError
 from slicer_uri_bridge.files import safe_filename
 from slicer_uri_bridge.stl_archive import MAX_NAME_COLLISIONS, MAX_STL_FILES, extract_stl_archive
 
@@ -55,7 +56,7 @@ class StlArchiveTests(unittest.TestCase):
                 archive.writestr("model.obj", b"ignored")
                 archive.writestr("project.3mf", b"ignored")
 
-            with self.assertRaisesRegex(ValueError, "at least one STL file"):
+            with self.assertRaisesRegex(BridgeError, "at least one STL file"):
                 extract_stl_archive(archive_path, folder / "stl")
 
     def test_ignores_macos_appledouble_stl_stubs(self) -> None:
@@ -65,7 +66,7 @@ class StlArchiveTests(unittest.TestCase):
                 archive.writestr("__MACOSX/models/._part.stl", b"not a model")
                 archive.writestr("._part.stl", b"not a model")
 
-            with self.assertRaisesRegex(ValueError, "at least one STL file"):
+            with self.assertRaisesRegex(BridgeError, "at least one STL file"):
                 extract_stl_archive(archive_path, folder / "stl")
 
     def test_skips_symlinks_and_keeps_stl_inside_destination(self) -> None:
@@ -105,7 +106,7 @@ class StlArchiveTests(unittest.TestCase):
                 for index in range(MAX_STL_FILES + 1):
                     archive.writestr(f"part-{index}.stl", b"solid model\n")
 
-            with self.assertRaisesRegex(ValueError, f"at most {MAX_STL_FILES} STL files"):
+            with self.assertRaisesRegex(BridgeError, f"at most {MAX_STL_FILES} STL files"):
                 extract_stl_archive(archive_path, folder / "stl")
 
     def test_rejects_excessive_duplicate_stl_names(self) -> None:
@@ -115,7 +116,7 @@ class StlArchiveTests(unittest.TestCase):
                 for index in range(MAX_NAME_COLLISIONS + 1):
                     archive.writestr(f"folder-{index}/part.stl", b"solid model\n")
 
-            with self.assertRaisesRegex(ValueError, "too many STL files with the same name"):
+            with self.assertRaisesRegex(BridgeError, "too many STL files with the same name"):
                 extract_stl_archive(archive_path, folder / "stl")
 
     def test_enforces_size_limit_while_extracting(self) -> None:
@@ -130,6 +131,6 @@ class StlArchiveTests(unittest.TestCase):
             with (
                 patch("slicer_uri_bridge.stl_archive.zipfile.ZipFile", return_value=archive),
                 patch("slicer_uri_bridge.stl_archive.MAX_MODEL_BYTES", 10),
-                self.assertRaisesRegex(ValueError, "exceed the size limit"),
+                self.assertRaisesRegex(BridgeError, "exceed the size limit"),
             ):
                 extract_stl_archive(folder / "models.zip", folder / "stl")

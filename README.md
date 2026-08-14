@@ -154,7 +154,7 @@ The bridge validates downloads before opening them:
 * redirect targets are revalidated
 * downloaded files must use an allowed model extension
 * empty files and obvious executable formats are refused
-* Printables model-pack ZIP downloads can be disabled with `allow_printables_bundle`; only 1–128 STL entries are extracted, with at most 16 files per sanitized name and a total-size limit
+* Printables model-pack ZIP downloads can be disabled with `allow_printables_bundle`; only 1–128 STL entries are extracted, with at most 16 files per sanitized name and a 512 MB total-size limit
 * 3MF files are checked for embedded post-processing scripts ([scripts that can run after slicing](https://manual.slic3r.org/advanced/post-processing))
 
 By default, downloads are accepted from any host. To restrict downloads to specific hosts, set `allow_any_original_host = false` in the config and use the `allowed_hosts` list (the default config includes CDNs for Printables, Thingiverse, and Creality).

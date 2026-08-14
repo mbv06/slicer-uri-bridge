@@ -1,17 +1,15 @@
 from __future__ import annotations
 
-import shutil
 import subprocess
-import sys
 import unittest
 from io import StringIO
 from pathlib import Path
-from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, patch
 
 from slicer_uri_bridge.ui import (
     APP_TITLE,
     BUNDLE_HINT,
+    DIALOG_TIMEOUT_SECONDS,
     MACOS_DIALOG_SCRIPT_NAME,
     _macos_dialog_script_file,
     _show_linux_dialog,
@@ -147,6 +145,7 @@ class LinuxDialogTests(unittest.TestCase):
         self.assertIn("--warning", command)
         self.assertIn("hello", command)
         self.assertIn(APP_TITLE, command)
+        self.assertEqual(run.call_args.kwargs["timeout"], DIALOG_TIMEOUT_SECONDS)
 
     def test_linux_dialog_falls_back_to_kdialog(self) -> None:
         run = MagicMock()
@@ -174,6 +173,15 @@ class LinuxDialogTests(unittest.TestCase):
         ):
             self.assertFalse(_show_linux_dialog("hello", "showinfo"))
 
+    def test_linux_dialog_returns_false_when_zenity_times_out(self) -> None:
+        run = MagicMock(side_effect=subprocess.TimeoutExpired(cmd="zenity", timeout=DIALOG_TIMEOUT_SECONDS))
+        with (
+            patch("slicer_uri_bridge.ui.sys.platform", "linux"),
+            patch("slicer_uri_bridge.ui.shutil.which", return_value="/usr/bin/zenity"),
+            patch("slicer_uri_bridge.ui.subprocess.run", run),
+        ):
+            self.assertFalse(_show_linux_dialog("hello", "showinfo"))
+
 
 class MacOSDialogTests(unittest.TestCase):
     def test_macos_dialog_is_skipped_off_macos(self) -> None:
@@ -196,6 +204,7 @@ class MacOSDialogTests(unittest.TestCase):
         self.assertEqual(Path(command[1]).name, MACOS_DIALOG_SCRIPT_NAME)
         self.assertEqual(command[2:], [APP_TITLE, 'hello "world"\nnext', "informational"])
         self.assertIs(run.call_args.kwargs["stdin"], subprocess.DEVNULL)
+        self.assertEqual(run.call_args.kwargs["timeout"], DIALOG_TIMEOUT_SECONDS)
 
     def test_macos_error_dialog_passes_critical_kind(self) -> None:
         run = MagicMock()
@@ -215,9 +224,9 @@ class MacOSDialogTests(unittest.TestCase):
         self.assertEqual(path.name, MACOS_DIALOG_SCRIPT_NAME)
         self.assertIn("on run argv", source)
         self.assertIn("display alert", source)
-        self.assertIn("as critical", source)
-        self.assertIn("as warning", source)
-        self.assertIn("as informational", source)
+        self.assertIn("set alertType to critical", source)
+        self.assertIn("set alertType to warning", source)
+        self.assertIn("set alertType to informational", source)
 
     def test_macos_dialog_treats_user_cancel_as_shown(self) -> None:
         run = MagicMock()
@@ -239,24 +248,13 @@ class MacOSDialogTests(unittest.TestCase):
         ):
             self.assertFalse(_show_macos_dialog("boom", "showinfo"))
 
-
-@unittest.skipUnless(sys.platform == "darwin", "requires macOS osacompile")
-class MacOSDialogCompileTests(unittest.TestCase):
-    def test_dialog_script_osacompiles(self) -> None:
-        osacompile = shutil.which("osacompile")
-        if not osacompile:
-            self.skipTest("osacompile was not found")
-
-        with TemporaryDirectory() as temp_dir:
-            output_path = Path(temp_dir) / "macos-dialog.scpt"
-            completed = subprocess.run(
-                [osacompile, "-o", str(output_path), str(_macos_dialog_script_file())],
-                check=False,
-                capture_output=True,
-                text=True,
-            )
-            self.assertEqual(completed.returncode, 0, completed.stderr)
-            self.assertTrue(output_path.is_file())
+    def test_macos_dialog_returns_false_when_osascript_times_out(self) -> None:
+        run = MagicMock(side_effect=subprocess.TimeoutExpired(cmd="osascript", timeout=DIALOG_TIMEOUT_SECONDS))
+        with (
+            patch("slicer_uri_bridge.ui.sys.platform", "darwin"),
+            patch("slicer_uri_bridge.ui.subprocess.run", run),
+        ):
+            self.assertFalse(_show_macos_dialog("boom", "showinfo"))
 
 
 if __name__ == "__main__":

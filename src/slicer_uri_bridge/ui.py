@@ -14,6 +14,7 @@ except Exception:
     tkinter = tkfont = messagebox = ttk = None  # type: ignore[assignment]
 
 APP_TITLE = "Slicer URI Bridge"
+DIALOG_TIMEOUT_SECONDS = 5 * 60
 BUNDLE_HINT_MARKUP = (
     "The STL model pack will be opened in Bambu Studio.\n\n"
     "1. If asked to load the files as a single object with multiple parts, choose **No**.\n"
@@ -22,10 +23,10 @@ BUNDLE_HINT_MARKUP = (
 BUNDLE_HINT = BUNDLE_HINT_MARKUP.replace("**", "")
 _DPI_READY = False
 MACOS_DIALOG_SCRIPT_NAME = "macos-dialog.applescript"
-_MACOS_ALERT_TYPES = {
-    "showerror": "critical",
-    "showwarning": "warning",
-    "showinfo": "informational",
+_DIALOG_KINDS = {
+    "showerror": ("critical", "--error", "--error"),
+    "showwarning": ("warning", "--warning", "--sorry"),
+    "showinfo": ("informational", "--info", "--msgbox"),
 }
 
 
@@ -127,7 +128,7 @@ def _macos_dialog_script_file() -> Path:
 def _show_macos_dialog(message: str, kind: str) -> bool:
     if sys.platform != "darwin":
         return False
-    alert_type = _MACOS_ALERT_TYPES.get(kind, "informational")
+    alert_type, _, _ = _DIALOG_KINDS.get(kind, _DIALOG_KINDS["showinfo"])
     try:
         completed = subprocess.run(
             ["/usr/bin/osascript", str(_macos_dialog_script_file()), APP_TITLE, message, alert_type],
@@ -136,6 +137,7 @@ def _show_macos_dialog(message: str, kind: str) -> bool:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
             text=True,
+            timeout=DIALOG_TIMEOUT_SECONDS,
         )
     except Exception:
         return False
@@ -154,6 +156,7 @@ def _run_dialog_command(command: list[str]) -> bool:
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            timeout=DIALOG_TIMEOUT_SECONDS,
         )
     except Exception:
         return False
@@ -164,11 +167,7 @@ def _show_linux_dialog(message: str, kind: str) -> bool:
     if sys.platform in {"win32", "darwin"}:
         return False
 
-    zenity_flag, kdialog_flag = {
-        "showerror": ("--error", "--error"),
-        "showwarning": ("--warning", "--sorry"),
-        "showinfo": ("--info", "--msgbox"),
-    }.get(kind, ("--info", "--msgbox"))
+    _, zenity_flag, kdialog_flag = _DIALOG_KINDS.get(kind, _DIALOG_KINDS["showinfo"])
 
     zenity = shutil.which("zenity")
     if zenity and _run_dialog_command(

@@ -3,11 +3,11 @@ on run argv
     set alertTitle to item 1 of argv
     set alertMessage to item 2 of argv
     set alertKind to item 3 of argv
+    set alertType to informational
     if alertKind is "critical" then
-        display alert alertTitle message alertMessage as critical buttons {"OK"} default button "OK"
+        set alertType to critical
     else if alertKind is "warning" then
-        display alert alertTitle message alertMessage as warning buttons {"OK"} default button "OK"
-    else
-        display alert alertTitle message alertMessage as informational buttons {"OK"} default button "OK"
+        set alertType to warning
     end if
+    display alert alertTitle message alertMessage as alertType buttons {"OK"} default button "OK"
 end run

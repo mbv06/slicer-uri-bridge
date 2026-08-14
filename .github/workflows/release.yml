@@ -175,7 +175,7 @@ jobs:
         env:
           RELEASE_TAG: ${{ steps.meta.outputs.release_tag }}
           NOTES_PATH: ${{ runner.temp }}/release-notes.md
-        run: python tests/changelog_notes.py
+        run: python scripts/changelog_notes.py
 
       - name: Move rolling dev tag
         if: steps.meta.outputs.release_tag == 'dev'

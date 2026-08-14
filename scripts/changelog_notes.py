@@ -35,15 +35,16 @@ def write_release_notes(changelog_path: Path, tag: str, notes_path: Path) -> Non
 
 def main() -> int:
     try:
+        notes_path = Path(os.environ["NOTES_PATH"])
         write_release_notes(
             Path(os.environ.get("CHANGELOG_PATH", "CHANGELOG.md")),
             os.environ["RELEASE_TAG"],
-            Path(os.environ["NOTES_PATH"]),
+            notes_path,
         )
+        print(f"Wrote {notes_path}")
     except (KeyError, ValueError, OSError) as exc:
         print(exc, file=sys.stderr)
         return 1
-    print(f"Wrote {os.environ['NOTES_PATH']}")
     return 0
 
 

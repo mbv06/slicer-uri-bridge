@@ -23,6 +23,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from .config import missing_config_message, user_config_path, user_log_path
+from .exceptions import BridgeError
 from .files import BUFFER_SIZE, MAX_MODEL_BYTES, STL_SUFFIX, ZIP_SUFFIX, available_destination, safe_filename
 from .stl_archive import extract_stl_archive
 from .ui import show_bundle_hint, show_error, show_warning
@@ -40,11 +41,6 @@ PROJECT_SETTINGS_PATH = "Metadata/project_settings.config"
 POST_PROCESS_ACTION_DEFAULT = "warn"
 POST_PROCESS_ACTIONS = {"ignore", "warn", "block"}
 WINDOWS_COMMAND_LINE_LIMIT = 32767
-
-
-class BridgeError(RuntimeError):
-    pass
-
 
 logger = logging.getLogger("slicer_uri_bridge")
 
@@ -528,10 +524,11 @@ def prepare_model_paths(path: Path) -> list[Path]:
     destination = Path(tempfile.mkdtemp(prefix=".slicer-uri-bridge-stl-", dir=path.parent))
     try:
         return extract_stl_archive(path, destination)
+    except BridgeError:
+        shutil.rmtree(destination, ignore_errors=True)
+        raise
     except Exception as exc:
         shutil.rmtree(destination, ignore_errors=True)
-        if isinstance(exc, BridgeError):
-            raise
         detail = str(exc).strip() or type(exc).__name__
         raise BridgeError(f"Could not open the model pack.\n\n{detail}") from exc
 
