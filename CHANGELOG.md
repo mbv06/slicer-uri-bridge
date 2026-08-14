@@ -2,6 +2,22 @@
 
 All notable changes to this project are documented here.
 
+## v0.1.5 - 2026-08-14
+
+### Changed
+
+- Raise the download and model-pack size limit from 200 MiB to 512 MiB to accommodate large model-pack ZIPs. This is the shared DoS bound for HTTPS downloads and extracted STL bytes.
+
+### Added
+
+- Show native dialogs on macOS (`osascript`) and Linux (zenity/kdialog) when tkinter is missing or cannot display windows from the background URI handler. Windows still uses tkinter.
+
+### Fixed
+
+- Show the Printables STL pack hint and error dialogs on macOS when the handler is launched from the AppleScript URI applet.
+- Raise model-pack validation failures as `BridgeError` so the user sees the specific reason instead of a generic zip-open error.
+- Bring tkinter error and warning dialogs to the front on Windows so they are not hidden behind other windows when the URI handler launches.
+
 ## v0.1.4 - 2026-08-13
 
 ### Added

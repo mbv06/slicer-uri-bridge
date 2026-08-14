@@ -13,7 +13,7 @@ jobs:
   github-release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
 
@@ -35,13 +35,13 @@ jobs:
               prerelease=false
               make_latest=true
             fi
-          elif [[ "$EVENT" == workflow_dispatch && "$REF_NAME" == dev ]]; then
+          elif [[ "$EVENT" == workflow_dispatch && "$REF_NAME" == develop ]]; then
             release_tag=dev
             release_name=Dev
             prerelease=true
             make_latest=false
           else
-            echo "Stable releases need a v* tag. Dev releases: run this workflow from the 'dev' branch." >&2
+            echo "Stable releases need a v* tag. Dev releases: run this workflow from the 'develop' branch." >&2
             exit 1
           fi
           if [[ ! "$release_tag" =~ ^(dev|v[0-9][0-9A-Za-z.-]*)$ ]]; then
@@ -56,7 +56,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           echo "Publishing $release_name (tag=$release_tag, prerelease=$prerelease, make_latest=$make_latest)"
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.13"
 
@@ -171,6 +171,12 @@ jobs:
               print(f"Pinned {path} to {tag}")
           PY
 
+      - name: Extract release notes from CHANGELOG.md
+        env:
+          RELEASE_TAG: ${{ steps.meta.outputs.release_tag }}
+          NOTES_PATH: ${{ runner.temp }}/release-notes.md
+        run: python scripts/changelog_notes.py
+
       - name: Move rolling dev tag
         if: steps.meta.outputs.release_tag == 'dev'
         env:
@@ -188,7 +194,7 @@ jobs:
           fi
           echo "refs/tags/dev -> ${GITHUB_SHA}"
 
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.meta.outputs.release_tag }}
           name: ${{ steps.meta.outputs.release_name }}
@@ -197,7 +203,7 @@ jobs:
           prerelease: ${{ steps.meta.outputs.prerelease == 'true' }}
           make_latest: ${{ steps.meta.outputs.make_latest }}
           overwrite_files: true
-          generate_release_notes: true
+          body_path: ${{ runner.temp }}/release-notes.md
           files: |
             dist/slicer-uri-bridge-python.tar.gz
             dist/slicer-uri-bridge-python.zip

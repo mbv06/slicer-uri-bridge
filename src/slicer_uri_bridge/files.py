@@ -4,7 +4,7 @@ import re
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
 BUFFER_SIZE = 81920
-MAX_MODEL_BYTES = 200 * 1024 * 1024
+MAX_MODEL_BYTES = 512 * 1024 * 1024
 STL_SUFFIX = ".stl"
 ZIP_SUFFIX = ".zip"
 

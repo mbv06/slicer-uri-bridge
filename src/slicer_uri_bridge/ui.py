@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import contextlib
+import shutil
+import subprocess
 import sys
+from pathlib import Path
 
 try:
     import tkinter
@@ -11,6 +14,7 @@ except Exception:
     tkinter = tkfont = messagebox = ttk = None  # type: ignore[assignment]
 
 APP_TITLE = "Slicer URI Bridge"
+DIALOG_TIMEOUT_SECONDS = 5 * 60
 BUNDLE_HINT_MARKUP = (
     "The STL model pack will be opened in Bambu Studio.\n\n"
     "1. If asked to load the files as a single object with multiple parts, choose **No**.\n"
@@ -18,13 +22,17 @@ BUNDLE_HINT_MARKUP = (
 )
 BUNDLE_HINT = BUNDLE_HINT_MARKUP.replace("**", "")
 _DPI_READY = False
+MACOS_DIALOG_SCRIPT_NAME = "macos-dialog.applescript"
+_DIALOG_KINDS = {
+    "showerror": ("critical", "--error", "--error"),
+    "showwarning": ("warning", "--warning", "--sorry"),
+    "showinfo": ("informational", "--info", "--msgbox"),
+}
 
 
 def show_message(message: str, kind: str) -> None:
     print(message, file=sys.stderr)
-    if tkinter is None:
-        return
-    _show_tk_messagebox(message, kind)
+    _show_gui_message(message, kind)
 
 
 def show_error(message: str) -> None:
@@ -37,10 +45,18 @@ def show_warning(message: str) -> None:
 
 def show_bundle_hint() -> None:
     print(BUNDLE_HINT, file=sys.stderr)
-    if tkinter is None:
+    _show_gui_message(BUNDLE_HINT, "showinfo", custom_hint=True)
+
+
+def _show_gui_message(message: str, kind: str, *, custom_hint: bool = False) -> None:
+    if _show_macos_dialog(message, kind):
         return
-    if not _show_bundle_hint_dialog():
-        _show_tk_messagebox(BUNDLE_HINT, "showinfo")
+    if tkinter is not None:
+        if custom_hint and _show_bundle_hint_dialog():
+            return
+        if _show_tk_messagebox(message, kind):
+            return
+    _show_linux_dialog(message, kind)
 
 
 def _ensure_dpi_aware() -> None:
@@ -83,15 +99,79 @@ def _pack_markup(parent, markup: str) -> None:
 
 
 def _show_tk_messagebox(message: str, kind: str) -> bool:
+    root = None
     try:
         _ensure_dpi_aware()
         root = tkinter.Tk()
         root.withdraw()
+        root.title(APP_TITLE)
+        root.attributes("-topmost", True)
+        root.lift()
+        root.focus_force()
         getattr(messagebox, kind)(APP_TITLE, message, parent=root)
-        root.destroy()
         return True
     except Exception:
         return False
+    finally:
+        if root is not None:
+            with contextlib.suppress(Exception):
+                root.destroy()
+
+
+def _macos_dialog_script_file() -> Path:
+    path = Path(__file__).resolve().parent / "resources" / MACOS_DIALOG_SCRIPT_NAME
+    if not path.is_file():
+        raise FileNotFoundError(f"macOS dialog script not found: {path}")
+    return path
+
+
+def _show_macos_dialog(message: str, kind: str) -> bool:
+    if sys.platform != "darwin":
+        return False
+    alert_type, _, _ = _DIALOG_KINDS.get(kind, _DIALOG_KINDS["showinfo"])
+    try:
+        completed = subprocess.run(
+            ["/usr/bin/osascript", str(_macos_dialog_script_file()), APP_TITLE, message, alert_type],
+            check=False,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=DIALOG_TIMEOUT_SECONDS,
+        )
+    except Exception:
+        return False
+    return completed.returncode == 0
+
+
+def _run_dialog_command(command: list[str]) -> bool:
+    try:
+        completed = subprocess.run(
+            command,
+            check=False,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=DIALOG_TIMEOUT_SECONDS,
+        )
+    except Exception:
+        return False
+    return completed.returncode in {0, 1}
+
+
+def _show_linux_dialog(message: str, kind: str) -> bool:
+    if sys.platform in {"win32", "darwin"}:
+        return False
+
+    _, zenity_flag, kdialog_flag = _DIALOG_KINDS.get(kind, _DIALOG_KINDS["showinfo"])
+
+    zenity = shutil.which("zenity")
+    if zenity and _run_dialog_command(
+        [zenity, zenity_flag, "--title", APP_TITLE, "--text", message, "--no-markup"]
+    ):
+        return True
+
+    kdialog = shutil.which("kdialog")
+    return bool(kdialog and _run_dialog_command([kdialog, "--title", APP_TITLE, kdialog_flag, message]))
 
 
 def _show_bundle_hint_dialog() -> bool:

@@ -236,7 +236,6 @@ def _is_table(value: object) -> TypeGuard[Mapping[str, object]]:
 def _leaf_paths(node: object, prefix: tuple[str, ...]) -> list[str]:
     if not _is_table(node):
         return [".".join(prefix)] if prefix else []
-        return [".".join(prefix)] if prefix else []
 
     leaves: list[str] = []
     for key, value in node.items():
