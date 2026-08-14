@@ -15,7 +15,7 @@ def extract_release_notes(changelog: str, tag: str) -> str:
     if TAG_PATTERN.fullmatch(tag) is None:
         raise ValueError(f"Refusing unsafe release tag: {tag}")
 
-    heading = re.compile(rf"^## {re.escape(tag)}(?:\s.*)?$", re.MULTILINE)
+    heading = re.compile(rf"^## {re.escape(tag)}(?:[ \t].*)?$", re.MULTILINE)
     match = heading.search(changelog)
     if match is None:
         raise ValueError(f"CHANGELOG.md has no section for {tag}")

@@ -135,17 +135,12 @@ def _show_macos_dialog(message: str, kind: str) -> bool:
             check=False,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-            text=True,
+            stderr=subprocess.DEVNULL,
             timeout=DIALOG_TIMEOUT_SECONDS,
         )
     except Exception:
         return False
-
-    if completed.returncode == 0:
-        return True
-    stderr = (completed.stderr or "").lower()
-    return "user canceled" in stderr or "user cancelled" in stderr
+    return completed.returncode == 0
 
 
 def _run_dialog_command(command: list[str]) -> bool:

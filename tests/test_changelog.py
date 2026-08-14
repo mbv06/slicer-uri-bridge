@@ -51,6 +51,13 @@ class ExtractReleaseNotesTests(unittest.TestCase):
     def test_extracts_last_section(self) -> None:
         self.assertEqual(changelog_notes.extract_release_notes(CHANGELOG, "v1.0.0"), "- First release.\n")
 
+    def test_keeps_first_body_line_when_heading_has_no_blank_line(self) -> None:
+        changelog = "## v1.2.0 - 2026-08-01\n### Added\n- New thing.\n"
+        self.assertEqual(
+            changelog_notes.extract_release_notes(changelog, "v1.2.0"),
+            "### Added\n- New thing.\n",
+        )
+
     def test_does_not_match_longer_version(self) -> None:
         with self.assertRaisesRegex(ValueError, "no section for v1.1"):
             changelog_notes.extract_release_notes(CHANGELOG, "v1.1")

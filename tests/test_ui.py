@@ -224,19 +224,10 @@ class MacOSDialogTests(unittest.TestCase):
         self.assertEqual(path.name, MACOS_DIALOG_SCRIPT_NAME)
         self.assertIn("on run argv", source)
         self.assertIn("display alert", source)
+        self.assertIn("on error number -128", source)
         self.assertIn("set alertType to critical", source)
         self.assertIn("set alertType to warning", source)
         self.assertIn("set alertType to informational", source)
-
-    def test_macos_dialog_treats_user_cancel_as_shown(self) -> None:
-        run = MagicMock()
-        run.return_value.returncode = 1
-        run.return_value.stderr = "User canceled."
-        with (
-            patch("slicer_uri_bridge.ui.sys.platform", "darwin"),
-            patch("slicer_uri_bridge.ui.subprocess.run", run),
-        ):
-            self.assertTrue(_show_macos_dialog("boom", "showinfo"))
 
     def test_macos_dialog_fails_when_osascript_cannot_show_ui(self) -> None:
         run = MagicMock()

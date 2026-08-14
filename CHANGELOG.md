@@ -6,7 +6,7 @@ All notable changes to this project are documented here.
 
 ### Changed
 
-- Raise the download and model-pack size limit from 200 MB to 512 MB to accommodate large model-pack ZIPs. This is the shared DoS bound for HTTPS downloads and extracted STL bytes.
+- Raise the download and model-pack size limit from 200 MiB to 512 MiB to accommodate large model-pack ZIPs. This is the shared DoS bound for HTTPS downloads and extracted STL bytes.
 
 ### Added
 

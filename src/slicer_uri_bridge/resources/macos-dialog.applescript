@@ -9,5 +9,8 @@ on run argv
     else if alertKind is "warning" then
         set alertType to warning
     end if
-    display alert alertTitle message alertMessage as alertType buttons {"OK"} default button "OK"
+    try
+        display alert alertTitle message alertMessage as alertType buttons {"OK"} default button "OK"
+    on error number -128
+    end try
 end run
