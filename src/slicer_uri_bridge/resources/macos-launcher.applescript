@@ -10,12 +10,16 @@ on logMessage(messageText)
 end logMessage
 
 on open location thisUrl
+    set loggedUrl to thisUrl
+    ignoring case
+        if thisUrl starts with "acnext:" then set loggedUrl to "acnext://open?jsonvalue=<redacted>"
+    end ignoring
     set logDir to do shell script "/usr/bin/dirname " & quoted form of launcherLogFile
     do shell script "/bin/mkdir -p " & quoted form of logDir
     do shell script "{ " & ¬
         "echo '---'; " & ¬
         "/bin/date; " & ¬
-        "echo 'uri: ' " & quoted form of thisUrl & "; " & ¬
+        "echo 'uri: ' " & quoted form of loggedUrl & "; " & ¬
         "echo 'python: ' " & quoted form of bridgePython & "; " & ¬
         "echo 'module: ' " & quoted form of bridgeModule & "; " & ¬
         "echo 'config: ' " & quoted form of bridgeConfig & "; " & ¬

@@ -58,6 +58,12 @@ class ActionResult:
 
 PROTOCOLS: tuple[ProtocolDef, ...] = (
     ProtocolDef("bambu", "Bambu", "bambustudioopen", ("bambu", "bambuopen", "bambustudio", "bambustudioopen")),
+    ProtocolDef(
+        "anycubic",
+        "Anycubic",
+        "acnext",
+        ("anycubic", "anycubic-slicer", "anycubicslicer", "anycubic-slicer-next", "anycubicslicernext", "acnext"),
+    ),
     ProtocolDef("cura", "Cura", "cura", ("cura", "ultimaker-cura", "ultimakercura")),
     ProtocolDef(
         "creality",

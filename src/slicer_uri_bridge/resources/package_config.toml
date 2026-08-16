@@ -1,0 +1,20 @@
+# Packaged product defaults. Updated with the bridge; not copied into user config.
+
+[security]
+allowed_extensions = [".3mf", ".stl", ".step", ".stp", ".obj"]
+allowed_hosts = [
+  "files.printables.com",
+  "www.thingiverse.com",
+  "cdn.thingiverse.com",
+  "objects-us-east-1.dream.io",
+  "internal-creality-usa.oss-accelerate.aliyuncs.com",
+]
+
+[acnext]
+# regionCn/prod flags from the link select one of these API endpoints.
+# The selected endpoint receives the link's access token.
+# Endpoints must use HTTPS and resolve to public network addresses.
+global_production_endpoint = "https://api.makeronline.com/file/fileService/download"
+global_development_endpoint = "https://common-mo-itdev.anycubic.com/file/fileService/download"
+china_production_endpoint = "https://api.makeronline.cn/file/fileService/download"
+china_development_endpoint = "https://common-mo-itdev-cn.anycubic.com/file/fileService/download"

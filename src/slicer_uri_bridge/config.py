@@ -8,6 +8,7 @@ import stat
 import sys
 import tomllib
 from collections.abc import Mapping
+from functools import cache
 from importlib import resources
 from pathlib import Path
 from typing import TypeGuard
@@ -61,6 +62,15 @@ def user_log_path(
 
 def default_config_text() -> str:
     return resources.files("slicer_uri_bridge").joinpath("resources", "default_config.toml").read_text(encoding="utf-8")
+
+
+def package_config_text() -> str:
+    return resources.files("slicer_uri_bridge").joinpath("resources", "package_config.toml").read_text(encoding="utf-8")
+
+
+@cache
+def package_config() -> dict[str, object]:
+    return tomllib.loads(package_config_text())
 
 
 def init_user_config(*, force: bool = False) -> tuple[Path, bool, list[str]]:

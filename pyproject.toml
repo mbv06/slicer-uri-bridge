@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "slicer-uri-bridge"
-version = "0.1.5"
+version = "0.1.6"
 description = "Register slicer URI handlers and bridge slicer links to your favorite slicer app."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -12,7 +12,7 @@ license = { text = "MIT" }
 authors = [
   { name = "Slicer URI Bridge contributors" }
 ]
-keywords = ["uri-handler", "slicer", "bambu-studio", "cura", "prusaslicer", "orcaslicer"]
+keywords = ["uri-handler", "slicer", "bambu-studio", "anycubic", "cura", "prusaslicer", "orcaslicer"]
 classifiers = [
   "Programming Language :: Python :: 3",
   "Operating System :: Microsoft :: Windows",
@@ -33,6 +33,7 @@ where = ["src"]
 [tool.setuptools.package-data]
 slicer_uri_bridge = [
     "resources/default_config.toml",
+    "resources/package_config.toml",
     "resources/macos-dialog.applescript",
     "resources/macos-launcher.applescript",
 ]
