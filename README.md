@@ -160,17 +160,13 @@ The bridge validates downloads before opening them:
 * redirect targets are revalidated
 * downloaded files must use an allowed model extension
 * empty files and obvious executable formats are refused
-* MakerOnline `acnext` payloads are size-limited and sent only to a packaged Anycubic API endpoint (or a user `[acnext]` override); endpoints and API-returned signed URLs must use HTTPS even when `allow_plain_http = true`, must resolve to public addresses, and embedded access tokens are redacted from logs
+* MakerOnline `acnext` payloads are size-limited; embedded access tokens are redacted from logs
 * Printables model-pack ZIP downloads can be disabled with `allow_printables_bundle`; only 1–128 STL entries are extracted, with at most 16 files per sanitized name and a 512 MiB total-size limit
 * 3MF files are checked for embedded post-processing scripts ([scripts that can run after slicing](https://manual.slic3r.org/advanced/post-processing))
 
-By default, downloads are accepted from any public host. To restrict initial URLs supplied directly by protocol links, set `allow_any_original_host = false`. The packaged host list (Printables, Thingiverse, Creality, and similar) is always included and updates with the bridge; add more with `extra_allowed_hosts`. This allowlist is not applied to redirect targets or to signed URLs returned by a MakerOnline API; those destinations are instead required to use HTTPS and resolve to public addresses.
+By default any public host is accepted. Set `allow_any_original_host = false` to limit protocol-link URLs to the packaged host list plus `extra_allowed_hosts`. Redirects and signed download URLs skip that list but still need HTTPS and a public address. Extra model types go in `extra_allowed_extensions`.
 
-Allowed model extensions are also packaged and update with the bridge. Add more with `extra_allowed_extensions`.
-
-MakerOnline API URLs ship in the packaged [`package_config.toml`](src/slicer_uri_bridge/resources/package_config.toml). The link's `regionCn` and `prod` flags only select one of those four values; the link cannot provide an endpoint directly. Put `[acnext]` in your user config only to override a packaged URL. Treat overrides as trust settings because the selected endpoint receives the access token embedded in the link.
-
-User options are described in the bundled [`default_config.toml`](src/slicer_uri_bridge/resources/default_config.toml) template and copied into the generated `config.toml` file. After upgrading the package, run `slicer-uri-bridge init-config` to add any new user options to an existing config; current values and comments are left unchanged. Packaged hosts, extensions, and MakerOnline endpoints are not copied into the user file, so they follow the installed package version. Use `init-config --force` to replace the user file with the bundled template. The automatic installers already run `init-config` during upgrades.
+User options come from [`default_config.toml`](src/slicer_uri_bridge/resources/default_config.toml). `slicer-uri-bridge init-config` adds missing keys without changing existing values (`--force` replaces the file); installers run this on upgrade. Packaged hosts, extensions, and MakerOnline API URLs stay in the package and are not copied into the user file.
 
 ## Troubleshooting
 
