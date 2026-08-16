@@ -6,12 +6,16 @@ All notable changes to this project are documented here.
 
 ### Added
 
-- Add support for MakerOnline `acnext://open` links by exchanging their validated payload for a signed model URL through a configured Anycubic download API.
+- Add support for MakerOnline `acnext://open` links by exchanging their validated payload for a signed model URL through a packaged Anycubic download API.
 
 ### Security
 
 - Redact the access token embedded in `acnext` links from handler and macOS launcher logs.
-- Restrict MakerOnline token exchange requests to locally configured Anycubic API endpoints, then treat their returned signed-download URLs like redirect targets while still requiring HTTPS and public network addresses.
+- Restrict MakerOnline token exchange requests to packaged Anycubic API endpoints (optionally overridden in the user `[acnext]` section), then treat their returned signed-download URLs like redirect targets while still requiring HTTPS and public network addresses.
+
+### Changed
+
+- Keep known download hosts, model extensions, and MakerOnline API endpoints in a packaged config that updates with the bridge. User config can add `extra_allowed_hosts` / `extra_allowed_extensions` and override individual `[acnext]` keys. Existing user `security.allowed_hosts` and `security.allowed_extensions` are still merged in as extras.
 
 ## v0.1.5 - 2026-08-14
 

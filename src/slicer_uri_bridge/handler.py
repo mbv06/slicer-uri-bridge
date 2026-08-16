@@ -24,12 +24,14 @@ from urllib.parse import urlsplit
 
 from .acnext import (
     ACNEXT_SCHEME,
-    configured_acnext_endpoint,
+    acnext_endpoint_override,
+    packaged_acnext_endpoint,
+    packaged_acnext_endpoints,
     parse_acnext_uri,
     redact_protocol_uri,
     resolve_acnext_download,
 )
-from .config import missing_config_message, user_config_path, user_log_path
+from .config import missing_config_message, package_config, user_config_path, user_log_path
 from .exceptions import BridgeError
 from .files import BUFFER_SIZE, MAX_MODEL_BYTES, STL_SUFFIX, ZIP_SUFFIX, available_destination, safe_filename
 from .network import USER_AGENT, NoRedirectHandler, has_control_chars
@@ -131,37 +133,38 @@ def load_config() -> dict:
 
     security["post_process_action"] = normalize_post_process_action(security.get("post_process_action"))
 
-    allowed_hosts = security.get("allowed_hosts", [])
-    valid_hosts = []
-    if isinstance(allowed_hosts, list):
-        for host in allowed_hosts:
-            if isinstance(host, str) and is_host(host):
-                valid_hosts.append(normalize_host(host))
-            else:
-                logger.warning(f"Read invalid host: {host} Skipping...")
+    packaged = package_config()
+    packaged_security = packaged.get("security")
+    if not isinstance(packaged_security, dict):
+        raise BridgeError("Invalid packaged config: missing [security].")
+    packaged_acnext_endpoints()
 
-    security["allowed_hosts"] = valid_hosts
+    security["allowed_hosts"] = _union_config_strings(
+        _parse_allowed_hosts(packaged_security.get("allowed_hosts"), source="packaged security.allowed_hosts"),
+        _parse_allowed_hosts(security.get("extra_allowed_hosts"), source="security.extra_allowed_hosts"),
+        _parse_allowed_hosts(security.get("allowed_hosts"), source="security.allowed_hosts"),
+    )
     if not security["allowed_hosts"] and not security["allow_any_original_host"]:
-        message = "Config value must be a list: security.allowed_hosts"
+        message = "No allowed download hosts are configured."
         logger.error(message)
         raise BridgeError(message)
 
-    allowed_extensions = security.get("allowed_extensions", [])
-    valid_extensions = []
-    if isinstance(allowed_extensions, list):
-        for extension in allowed_extensions:
-            if not isinstance(extension, str) or not extension.strip():
-                logger.warning(f"Ignoring invalid extension in security.allowed_extensions: {extension!r}")
-                continue
-
-            extension = extension.strip().lower()
-            if not extension.startswith("."):
-                extension = f".{extension}"
-            valid_extensions.append(extension)
-
-    security["allowed_extensions"] = valid_extensions
+    security["allowed_extensions"] = _union_config_strings(
+        _parse_allowed_extensions(
+            packaged_security.get("allowed_extensions"),
+            source="packaged security.allowed_extensions",
+        ),
+        _parse_allowed_extensions(
+            security.get("extra_allowed_extensions"),
+            source="security.extra_allowed_extensions",
+        ),
+        _parse_allowed_extensions(
+            security.get("allowed_extensions"),
+            source="security.allowed_extensions",
+        ),
+    )
     if not security["allowed_extensions"]:
-        message = "Config value must be a list: security.allowed_extensions"
+        message = "No allowed model extensions are configured."
         logger.error(message)
         raise BridgeError(message)
 
@@ -204,6 +207,43 @@ def load_allowed_hosts(config: dict) -> tuple[set[str], bool]:
 
 def normalize_host(host: str) -> str:
     return host.rstrip(".").lower()
+
+
+def _union_config_strings(*groups: list[str]) -> list[str]:
+    return list(dict.fromkeys(value for group in groups for value in group))
+
+
+def _config_list(raw: object, *, source: str) -> list[object]:
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        logger.warning("Ignoring invalid list in %s", source)
+        return []
+    return raw
+
+
+def _parse_allowed_hosts(raw: object, *, source: str) -> list[str]:
+    hosts: list[str] = []
+    for host in _config_list(raw, source=source):
+        if isinstance(host, str) and is_host(host):
+            hosts.append(normalize_host(host))
+        else:
+            logger.warning("Read invalid host in %s: %s Skipping...", source, host)
+    return hosts
+
+
+def _parse_allowed_extensions(raw: object, *, source: str) -> list[str]:
+    extensions: list[str] = []
+    for extension in _config_list(raw, source=source):
+        if not isinstance(extension, str) or not extension.strip():
+            logger.warning("Ignoring invalid extension in %s: %r", source, extension)
+            continue
+
+        extension = extension.strip().lower()
+        if not extension.startswith("."):
+            extension = f".{extension}"
+        extensions.append(extension)
+    return extensions
 
 
 def strip_trailing_model_slash(url: str, allowed_extensions: set[str]) -> str:
@@ -251,7 +291,8 @@ def resolve_download_target(
     scheme = protocol_uri.partition(":")[0].lower()
     if scheme == ACNEXT_SCHEME:
         payload = parse_acnext_uri(protocol_uri)
-        endpoint = configured_acnext_endpoint(payload, config)
+        override = acnext_endpoint_override(payload, config)
+        endpoint = override or packaged_acnext_endpoint(payload)
         try:
             validate_remote_url(
                 endpoint,
@@ -262,7 +303,9 @@ def resolve_download_target(
                 allow_local_resolved_hosts=False,
             )
         except BridgeError as exc:
-            raise BridgeError(f"Invalid configuration value acnext.{payload.endpoint_key}: {exc}") from exc
+            if override:
+                raise BridgeError(f"Invalid configuration value: acnext.{payload.endpoint_key}: {exc}") from exc
+            raise
         download_url = resolve_acnext_download(payload, endpoint=endpoint)
         logger.info("Resolved acnext URI to a signed download URL")
         return DownloadTarget(download_url, payload.file_name, trusted_resolver=True)

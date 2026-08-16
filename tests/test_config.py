@@ -12,6 +12,8 @@ from slicer_uri_bridge.config import (
     _leaf_paths,
     default_config_text,
     init_user_config,
+    package_config,
+    package_config_text,
     upgrade_config_text,
     upgrade_user_config,
 )
@@ -232,36 +234,43 @@ linux = "/custom/BambuStudio.AppImage"
         self.assertIn("security.allow_local_resolved_hosts", added)
         self.assertIn("security.allow_printables_bundle", added)
         self.assertIn("security.post_process_action", added)
-        self.assertIn("acnext.global_production_endpoint", added)
+        self.assertNotIn("acnext.global_production_endpoint", added)
+        self.assertNotIn("security.extra_allowed_hosts", added)
         self.assertTrue(merged["security"]["allow_plain_http"])
         self.assertFalse(merged["security"]["allow_any_original_host"])
         self.assertEqual(merged["bambu_studio"]["linux"], "/custom/BambuStudio.AppImage")
         self.assertFalse(merged["security"]["allow_local_resolved_hosts"])
         self.assertTrue(merged["security"]["allow_printables_bundle"])
         self.assertEqual(merged["security"]["post_process_action"], "warn")
+        self.assertEqual(merged["security"]["allowed_hosts"], ["example.com"])
+        self.assertNotIn("acnext", merged)
+
+    def test_real_user_template_does_not_snapshot_package_defaults(self) -> None:
+        parsed = tomllib.loads(default_config_text())
+        packaged = package_config()
+        packaged_security = packaged["security"]
+        assert isinstance(packaged_security, dict)
+
+        self.assertNotIn("allowed_hosts", parsed["security"])
+        self.assertNotIn("allowed_extensions", parsed["security"])
+        self.assertNotIn("acnext", parsed)
+        self.assertIn("files.printables.com", packaged_security["allowed_hosts"])
+        self.assertIn(".3mf", packaged_security["allowed_extensions"])
         self.assertEqual(
-            merged["acnext"]["global_production_endpoint"],
+            packaged["acnext"]["global_production_endpoint"],
             "https://api.makeronline.com/file/fileService/download",
         )
+        self.assertIn("extra_allowed_hosts", default_config_text())
+        self.assertIn("[acnext]", package_config_text())
 
-    def test_real_default_template_preserves_custom_acnext_endpoint(self) -> None:
+    def test_real_default_template_preserves_custom_acnext_override(self) -> None:
         custom_endpoint = "https://maker-proxy.example/v2/download"
-        user = (
-            default_config_text()
-            .replace(
-                'global_production_endpoint = "https://api.makeronline.com/file/fileService/download"',
-                f'global_production_endpoint = "{custom_endpoint}"',
-            )
-            .replace(
-                'china_development_endpoint = "https://common-mo-itdev-cn.anycubic.com/file/fileService/download"\n',
-                "",
-            )
-        )
+        user = default_config_text() + f'\n[acnext]\nglobal_production_endpoint = "{custom_endpoint}"\n'
 
         updated, added = upgrade_config_text(user)
         merged = tomllib.loads(updated)
 
-        self.assertEqual(added, ["acnext.china_development_endpoint"])
+        self.assertEqual(added, [])
         self.assertEqual(merged["acnext"]["global_production_endpoint"], custom_endpoint)
 
 

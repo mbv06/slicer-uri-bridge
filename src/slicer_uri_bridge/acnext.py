@@ -7,7 +7,9 @@ import urllib.parse
 import urllib.request
 from collections.abc import Mapping
 from dataclasses import dataclass
+from functools import cache
 
+from .config import package_config
 from .exceptions import BridgeError
 from .network import USER_AGENT, NoRedirectHandler, has_control_chars
 
@@ -107,19 +109,49 @@ def parse_acnext_uri(protocol_uri: str) -> AcnextPayload:
     )
 
 
-def configured_acnext_endpoint(payload: AcnextPayload, config: Mapping[str, object]) -> str:
+def acnext_endpoint_override(payload: AcnextPayload, config: Mapping[str, object]) -> str | None:
     section = config.get("acnext")
-    endpoint = section.get(payload.endpoint_key) if isinstance(section, Mapping) else None
-    if not isinstance(endpoint, str) or not endpoint.strip():
-        raise BridgeError(f"Missing or invalid configuration value: acnext.{payload.endpoint_key}.")
-
-    endpoint = endpoint.strip()
-    if len(endpoint) > 4096 or has_control_chars(endpoint):
+    override = section.get(payload.endpoint_key) if isinstance(section, Mapping) else None
+    if override is None:
+        return None
+    if not isinstance(override, str):
         raise BridgeError(f"Invalid configuration value: acnext.{payload.endpoint_key}.")
-    return endpoint
+
+    override = override.strip()
+    if not override:
+        return None
+    if len(override) > 4096 or has_control_chars(override):
+        raise BridgeError(f"Invalid configuration value: acnext.{payload.endpoint_key}.")
+    return override
+
+
+@cache
+def packaged_acnext_endpoints() -> dict[str, str]:
+    section = package_config().get("acnext")
+    if not isinstance(section, Mapping):
+        raise BridgeError("Invalid packaged config: missing [acnext].")
+
+    endpoints: dict[str, str] = {}
+    for key in ACNEXT_ENDPOINT_KEYS.values():
+        endpoint = section.get(key)
+        if not isinstance(endpoint, str) or not endpoint.strip():
+            raise BridgeError(f"Missing packaged MakerOnline endpoint: acnext.{key}.")
+        endpoints[key] = endpoint.strip()
+    return endpoints
+
+
+def packaged_acnext_endpoint(payload: AcnextPayload) -> str:
+    return packaged_acnext_endpoints()[payload.endpoint_key]
+
+
+def configured_acnext_endpoint(payload: AcnextPayload, config: Mapping[str, object]) -> str:
+    return acnext_endpoint_override(payload, config) or packaged_acnext_endpoint(payload)
 
 
 def resolve_acnext_download(payload: AcnextPayload, *, endpoint: str) -> str:
+    if urllib.parse.urlsplit(endpoint).scheme.lower() != "https":
+        raise BridgeError("MakerOnline download-link endpoint must use HTTPS.")
+
     request_body = json.dumps(
         {
             "sourceType": "9",
@@ -131,7 +163,7 @@ def resolve_acnext_download(payload: AcnextPayload, *, endpoint: str) -> str:
         },
         separators=(",", ":"),
     ).encode("utf-8")
-    request = urllib.request.Request(
+    request = urllib.request.Request(  # noqa: S310 - endpoint is restricted to HTTPS above
         endpoint,
         data=request_body,
         headers={

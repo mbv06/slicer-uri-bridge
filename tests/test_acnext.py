@@ -2,20 +2,20 @@ from __future__ import annotations
 
 import base64
 import json
-import tomllib
 import unittest
 import urllib.parse
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from slicer_uri_bridge.acnext import (
+    MAX_RESPONSE_BYTES,
     AcnextPayload,
     configured_acnext_endpoint,
     parse_acnext_uri,
     redact_protocol_uri,
     resolve_acnext_download,
 )
-from slicer_uri_bridge.config import default_config_text
+from slicer_uri_bridge.config import package_config
 from slicer_uri_bridge.exceptions import BridgeError
 from slicer_uri_bridge.handler import DownloadTarget, main, resolve_download_target
 
@@ -47,32 +47,43 @@ class AcnextUriTests(unittest.TestCase):
         self.assertEqual(payload.user_id, "11111111-2222-3333-4444-555555555555")
         self.assertEqual(payload.endpoint_key, "global_production_endpoint")
 
-    def test_selects_configured_endpoint_for_each_region_and_environment(self) -> None:
+    def test_selects_packaged_endpoint_for_each_region_and_environment(self) -> None:
         expected = {
-            ("0", "0"): (
-                "global_development_endpoint",
-                "https://common-mo-itdev.anycubic.com/file/fileService/download",
-            ),
-            ("0", "1"): (
-                "global_production_endpoint",
-                "https://api.makeronline.com/file/fileService/download",
-            ),
-            ("1", "0"): (
-                "china_development_endpoint",
-                "https://common-mo-itdev-cn.anycubic.com/file/fileService/download",
-            ),
-            ("1", "1"): (
-                "china_production_endpoint",
-                "https://api.makeronline.cn/file/fileService/download",
-            ),
+            ("0", "0"): "global_development_endpoint",
+            ("0", "1"): "global_production_endpoint",
+            ("1", "0"): "china_development_endpoint",
+            ("1", "1"): "china_production_endpoint",
         }
-        config = tomllib.loads(default_config_text())
+        packaged = package_config()["acnext"]
+        assert isinstance(packaged, dict)
 
-        for flags, (key, endpoint) in expected.items():
+        for flags, key in expected.items():
             with self.subTest(flags=flags):
                 payload = parse_acnext_uri(make_acnext_uri(regionCn=flags[0], prod=flags[1]))
                 self.assertEqual(payload.endpoint_key, key)
-                self.assertEqual(configured_acnext_endpoint(payload, config), endpoint)
+                self.assertEqual(configured_acnext_endpoint(payload, {}), packaged[key])
+
+    def test_user_override_replaces_packaged_endpoint(self) -> None:
+        payload = parse_acnext_uri(make_acnext_uri())
+        override = "https://maker-proxy.example/v2/download"
+        packaged = package_config()["acnext"]
+        assert isinstance(packaged, dict)
+
+        self.assertEqual(
+            configured_acnext_endpoint(payload, {"acnext": {payload.endpoint_key: override}}),
+            override,
+        )
+        self.assertEqual(configured_acnext_endpoint(payload, {"acnext": {}}), packaged[payload.endpoint_key])
+
+    def test_blank_override_keeps_packaged_endpoint(self) -> None:
+        payload = parse_acnext_uri(make_acnext_uri())
+        packaged = package_config()["acnext"]
+        assert isinstance(packaged, dict)
+
+        self.assertEqual(
+            configured_acnext_endpoint(payload, {"acnext": {payload.endpoint_key: "   "}}),
+            packaged[payload.endpoint_key],
+        )
 
     def test_rejects_wrong_host_duplicate_value_and_invalid_base64(self) -> None:
         valid_query = urllib.parse.urlsplit(make_acnext_uri()).query
@@ -101,12 +112,11 @@ class AcnextUriTests(unittest.TestCase):
         self.assertEqual(redact_protocol_uri("ACNEXT:malformed"), redacted)
         self.assertEqual(redact_protocol_uri("prusaslicer:unchanged"), "prusaslicer:unchanged")
 
-    def test_rejects_missing_or_invalid_configured_endpoint(self) -> None:
+    def test_rejects_invalid_endpoint_override(self) -> None:
         payload = parse_acnext_uri(make_acnext_uri())
 
-        for config in ({}, {"acnext": {}}, {"acnext": {payload.endpoint_key: "bad\nendpoint"}}):
-            with self.subTest(config=config), self.assertRaisesRegex(BridgeError, f"acnext.{payload.endpoint_key}"):
-                configured_acnext_endpoint(payload, config)
+        with self.assertRaisesRegex(BridgeError, f"acnext.{payload.endpoint_key}"):
+            configured_acnext_endpoint(payload, {"acnext": {payload.endpoint_key: "bad\nendpoint"}})
 
     def test_invalid_endpoint_url_error_names_config_key(self) -> None:
         config = {
@@ -123,6 +133,16 @@ class AcnextUriTests(unittest.TestCase):
 
 
 class AcnextDownloadResolutionTests(unittest.TestCase):
+    def test_rejects_non_https_endpoint_before_opening(self) -> None:
+        payload = parse_acnext_uri(make_acnext_uri())
+
+        with patch("slicer_uri_bridge.acnext.urllib.request.build_opener") as build_opener:
+            for endpoint in ("http://api.makeronline.test/download", "file:///tmp/download"):
+                with self.subTest(endpoint=endpoint), self.assertRaisesRegex(BridgeError, "must use HTTPS"):
+                    resolve_acnext_download(payload, endpoint=endpoint)
+
+        build_opener.assert_not_called()
+
     def test_posts_official_request_shape_and_returns_signed_url(self) -> None:
         payload = AcnextPayload(
             access_token="test-access-token",
@@ -165,6 +185,38 @@ class AcnextDownloadResolutionTests(unittest.TestCase):
                 "fileName": "MakerOnline model.3mf",
             },
         )
+
+    def test_rejects_invalid_download_link_responses(self) -> None:
+        payload = parse_acnext_uri(make_acnext_uri())
+        cases = (
+            (503, b"", "HTTP status 503"),
+            (200, b"x" * (MAX_RESPONSE_BYTES + 1), "response is too large"),
+            (200, b"not JSON", "invalid download-link response"),
+            (200, b"{}", "did not return a download URL"),
+            (
+                200,
+                json.dumps({"data": "https://example.test/model.3mf\nignored"}).encode(),
+                "unsupported control characters",
+            ),
+        )
+
+        for status, response_body, expected_error in cases:
+            response = MagicMock()
+            response.status = status
+            response.read.return_value = response_body
+            response.__enter__.return_value = response
+            opener = MagicMock()
+            opener.open.return_value = response
+
+            with (
+                self.subTest(expected_error=expected_error),
+                patch("slicer_uri_bridge.acnext.urllib.request.build_opener", return_value=opener),
+                self.assertRaisesRegex(BridgeError, expected_error),
+            ):
+                resolve_acnext_download(
+                    payload,
+                    endpoint="https://api.makeronline.com/file/fileService/download",
+                )
 
     def test_main_validates_configured_api_and_trusts_its_signed_url(self) -> None:
         config = {

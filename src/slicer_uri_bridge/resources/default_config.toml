@@ -6,28 +6,22 @@ allow_any_original_host = true
 allow_local_resolved_hosts = false
 # Allow Printables all-model-files ZIPs to be opened as separate STL models in Bambu Studio.
 allow_printables_bundle = true
-allowed_extensions = [".3mf", ".stl", ".step", ".stp", ".obj"]
 # 3MF files can contain Bambu/Orca post-processing commands.
 # Values: "ignore", "warn" (show a warning and open), or "block" (refuse to open).
 post_process_action = "warn"
-# allowed_hosts is only used when allow_any_original_host = false
-allowed_hosts = [
-  "files.printables.com",
-  "www.thingiverse.com",
-  "cdn.thingiverse.com",
-  "objects-us-east-1.dream.io",
-  "internal-creality-usa.oss-accelerate.aliyuncs.com",
-]
+# Packaged hosts and extensions update with the bridge. Uncomment to add extras.
+# extra_allowed_extensions = [".amf"]
+# extra_allowed_hosts = ["cdn.example.com"]
 
-[acnext]
-# regionCn/prod flags from the link select one of these trusted API endpoints.
-# The selected endpoint receives the link's access token and is trusted independently of allowed_hosts.
-# Endpoints must use HTTPS and resolve to public network addresses.
+# Optional MakerOnline API overrides. Uncomment a key to replace the packaged
+# endpoint for that region/environment. Treat overrides as trust settings:
+# they receive the access token from acnext links and must use HTTPS.
 # Signed download URLs are also HTTPS-only, regardless of security.allow_plain_http.
-global_production_endpoint = "https://api.makeronline.com/file/fileService/download"
-global_development_endpoint = "https://common-mo-itdev.anycubic.com/file/fileService/download"
-china_production_endpoint = "https://api.makeronline.cn/file/fileService/download"
-china_development_endpoint = "https://common-mo-itdev-cn.anycubic.com/file/fileService/download"
+# [acnext]
+# global_production_endpoint = "https://api.makeronline.com/file/fileService/download"
+# global_development_endpoint = "https://common-mo-itdev.anycubic.com/file/fileService/download"
+# china_production_endpoint = "https://api.makeronline.cn/file/fileService/download"
+# china_development_endpoint = "https://common-mo-itdev-cn.anycubic.com/file/fileService/download"
 
 [bambu_studio]
 windows = 'C:\Program Files\Bambu Studio\bambu-studio.exe'

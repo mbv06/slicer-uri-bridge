@@ -805,6 +805,33 @@ allowed_extensions = [".stl"]
         self.assertFalse(config["security"]["allow_printables_bundle"])
         self.assertTrue(any("allow_printables_bundle; using false" in line for line in captured.output))
 
+    def test_load_config_unions_packaged_hosts_with_extras_and_legacy_lists(self) -> None:
+        with temporary_directory() as temp_dir:
+            config_path = Path(temp_dir) / "config.toml"
+            config_path.write_text(
+                """\
+[security]
+allow_any_original_host = false
+extra_allowed_hosts = ["cdn.example.com"]
+allowed_hosts = ["legacy.example.com"]
+extra_allowed_extensions = ["amf"]
+
+[bambu_studio]
+""",
+                encoding="utf-8",
+            )
+
+            with patch("slicer_uri_bridge.handler.CONFIG_FILE", config_path):
+                config = load_config()
+
+        hosts = config["security"]["allowed_hosts"]
+        extensions = config["security"]["allowed_extensions"]
+        self.assertIn("files.printables.com", hosts)
+        self.assertIn("cdn.example.com", hosts)
+        self.assertIn("legacy.example.com", hosts)
+        self.assertIn(".3mf", extensions)
+        self.assertIn(".amf", extensions)
+
 
 class ProtocolFileTests(unittest.TestCase):
     def test_read_protocol_uri_decodes_bom_and_removes_temp_file(self) -> None:

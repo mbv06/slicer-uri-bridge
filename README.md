@@ -148,7 +148,7 @@ The config file and log files are stored in:
 * Linux/macOS: `~/.config/slicer-uri-bridge/`
 * Windows: `%APPDATA%\slicer-uri-bridge\`
 
-If `XDG_CONFIG_HOME` is set on Linux or macOS, it is used instead of `~/.config`. The config includes allowed download hosts, allowed model file extensions, optional download folder, and platform-specific Bambu Studio paths. Print the active path with `slicer-uri-bridge config-path`.
+If `XDG_CONFIG_HOME` is set on Linux or macOS, it is used instead of `~/.config`.
 
 ## Security Model
 
@@ -160,15 +160,17 @@ The bridge validates downloads before opening them:
 * redirect targets are revalidated
 * downloaded files must use an allowed model extension
 * empty files and obvious executable formats are refused
-* MakerOnline `acnext` payloads are size-limited and sent only to one of the trusted Anycubic API endpoints configured in `[acnext]`; configured endpoints and API-returned signed URLs must use HTTPS even when `allow_plain_http = true`, must resolve to public addresses, and embedded access tokens are redacted from logs
+* MakerOnline `acnext` payloads are size-limited and sent only to a packaged Anycubic API endpoint (or a user `[acnext]` override); endpoints and API-returned signed URLs must use HTTPS even when `allow_plain_http = true`, must resolve to public addresses, and embedded access tokens are redacted from logs
 * Printables model-pack ZIP downloads can be disabled with `allow_printables_bundle`; only 1–128 STL entries are extracted, with at most 16 files per sanitized name and a 512 MiB total-size limit
 * 3MF files are checked for embedded post-processing scripts ([scripts that can run after slicing](https://manual.slic3r.org/advanced/post-processing))
 
-By default, downloads are accepted from any public host. To restrict initial URLs supplied directly by protocol links, set `allow_any_original_host = false` and use `allowed_hosts` (the default config includes known hosts for Printables, Thingiverse, and Creality). This allowlist is not applied to redirect targets or to signed URLs returned by a configured MakerOnline API; those destinations are instead required to use HTTPS and resolve to public addresses.
+By default, downloads are accepted from any public host. To restrict initial URLs supplied directly by protocol links, set `allow_any_original_host = false`. The packaged host list (Printables, Thingiverse, Creality, and similar) is always included and updates with the bridge; add more with `extra_allowed_hosts`. This allowlist is not applied to redirect targets or to signed URLs returned by a MakerOnline API; those destinations are instead required to use HTTPS and resolve to public addresses.
 
-MakerOnline API URLs live in the `[acnext]` config section so they can be updated without changing the bridge. The link's `regionCn` and `prod` flags only select one of those four locally configured values; the link cannot provide an endpoint directly. Treat these values as trust settings because the selected endpoint receives the access token embedded in the link.
+Allowed model extensions are also packaged and update with the bridge. Add more with `extra_allowed_extensions`.
 
-All available options are described in the bundled [`default_config.toml`](src/slicer_uri_bridge/resources/default_config.toml) template and copied into the generated `config.toml` file. After upgrading the package, run `slicer-uri-bridge init-config` to add any new options to an existing config; current values and comments are left unchanged. Use `init-config --force` to replace the file with the bundled default. The automatic installers already run `init-config` during upgrades.
+MakerOnline API URLs ship in the packaged [`package_config.toml`](src/slicer_uri_bridge/resources/package_config.toml). The link's `regionCn` and `prod` flags only select one of those four values; the link cannot provide an endpoint directly. Put `[acnext]` in your user config only to override a packaged URL. Treat overrides as trust settings because the selected endpoint receives the access token embedded in the link.
+
+User options are described in the bundled [`default_config.toml`](src/slicer_uri_bridge/resources/default_config.toml) template and copied into the generated `config.toml` file. After upgrading the package, run `slicer-uri-bridge init-config` to add any new user options to an existing config; current values and comments are left unchanged. Packaged hosts, extensions, and MakerOnline endpoints are not copied into the user file, so they follow the installed package version. Use `init-config --force` to replace the user file with the bundled template. The automatic installers already run `init-config` during upgrades.
 
 ## Troubleshooting
 

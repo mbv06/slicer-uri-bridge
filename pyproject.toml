@@ -33,6 +33,7 @@ where = ["src"]
 [tool.setuptools.package-data]
 slicer_uri_bridge = [
     "resources/default_config.toml",
+    "resources/package_config.toml",
     "resources/macos-dialog.applescript",
     "resources/macos-launcher.applescript",
 ]
