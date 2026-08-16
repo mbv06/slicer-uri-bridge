@@ -13,9 +13,11 @@ from unittest.mock import patch
 
 from slicer_uri_bridge.handler import (
     BridgeError,
+    DownloadTarget,
     build_destination,
     check_3mf_post_process,
     choose_filename,
+    download_model,
     extract_download,
     filename_from_url,
     has_executable_bits,
@@ -91,6 +93,53 @@ class DownloadUriTests(unittest.TestCase):
             )
 
 
+class DownloadModelValidationTests(unittest.TestCase):
+    def test_validates_first_url_against_allowlist_before_request(self) -> None:
+        with (
+            patch(
+                "slicer_uri_bridge.handler.validate_remote_url",
+                side_effect=BridgeError("stop before request"),
+            ) as validate_url,
+            patch("slicer_uri_bridge.handler.urllib.request.build_opener") as build_opener,
+            self.assertRaisesRegex(BridgeError, "stop before request"),
+        ):
+            download_model(
+                DownloadTarget("https://cdn.example/model.3mf", None),
+                allowed_extensions={".3mf"},
+                download_folder=None,
+                allowed_hosts={"cdn.example"},
+                allow_any_original_host=False,
+                allow_plain_http=False,
+                allow_local_resolved_hosts=False,
+            )
+
+        self.assertIs(validate_url.call_args.kwargs["check_allowlist"], True)
+        build_opener.return_value.open.assert_not_called()
+
+    def test_trusted_resolver_url_skips_allowlist_but_still_requires_https(self) -> None:
+        with (
+            patch(
+                "slicer_uri_bridge.handler.validate_remote_url",
+                side_effect=BridgeError("stop before request"),
+            ) as validate_url,
+            patch("slicer_uri_bridge.handler.urllib.request.build_opener") as build_opener,
+            self.assertRaisesRegex(BridgeError, "stop before request"),
+        ):
+            download_model(
+                DownloadTarget("https://storage.example/model.3mf", None, trusted_resolver=True),
+                allowed_extensions={".3mf"},
+                download_folder=None,
+                allowed_hosts={"different.example"},
+                allow_any_original_host=False,
+                allow_plain_http=True,
+                allow_local_resolved_hosts=True,
+            )
+
+        self.assertIs(validate_url.call_args.kwargs["check_allowlist"], False)
+        self.assertIs(validate_url.call_args.kwargs["allow_plain_http"], False)
+        build_opener.return_value.open.assert_not_called()
+
+
 class BambuEmptyUriTests(unittest.TestCase):
     def test_detects_empty_bambustudioopen_uri(self) -> None:
         self.assertTrue(is_empty_bambustudioopen_uri("bambustudioopen:///"))
@@ -155,6 +204,7 @@ class MainLoggingTests(unittest.TestCase):
                 "allow_any_original_host": True,
                 "allow_local_resolved_hosts": False,
                 "allow_printables_bundle": False,
+                "allowed_hosts": [],
             },
             "bambu_studio": {},
         }
@@ -192,7 +242,6 @@ class MainLoggingTests(unittest.TestCase):
 
             with (
                 patch("slicer_uri_bridge.handler.load_config", return_value=config),
-                patch("slicer_uri_bridge.handler.validate_remote_url"),
                 patch("slicer_uri_bridge.handler.resolve_bambu_command", return_value=["bambu-studio"]),
                 patch("slicer_uri_bridge.handler.download_model", return_value=archive),
                 patch("slicer_uri_bridge.handler.launch_bambu") as launch,
@@ -233,16 +282,13 @@ class MainLoggingTests(unittest.TestCase):
 
                 with (
                     patch("slicer_uri_bridge.handler.load_config", return_value=config),
-                    patch("slicer_uri_bridge.handler.validate_remote_url"),
                     patch("slicer_uri_bridge.handler.resolve_bambu_command", return_value=["bambu-studio"]),
                     patch("slicer_uri_bridge.handler.download_model", return_value=archive),
                     patch("slicer_uri_bridge.handler.launch_bambu") as launch,
                     patch("slicer_uri_bridge.handler.show_bundle_hint") as show_hint,
                     patch("slicer_uri_bridge.handler.show_error") as show_error,
                 ):
-                    exit_code = main(
-                        ["bambustudioopen://https%3A%2F%2Ffiles.printables.com%2Fmedia%2Fmodels.zip%2F"]
-                    )
+                    exit_code = main(["bambustudioopen://https%3A%2F%2Ffiles.printables.com%2Fmedia%2Fmodels.zip%2F"])
 
                 self.assertEqual(exit_code, 1)
                 launch.assert_not_called()
@@ -271,7 +317,6 @@ class MainLoggingTests(unittest.TestCase):
 
             with (
                 patch("slicer_uri_bridge.handler.load_config", return_value=config),
-                patch("slicer_uri_bridge.handler.validate_remote_url"),
                 patch("slicer_uri_bridge.handler.resolve_bambu_command", return_value=["bambu-studio"]),
                 patch("slicer_uri_bridge.handler.download_model", return_value=archive),
                 patch("slicer_uri_bridge.handler.launch_bambu") as launch,
@@ -295,6 +340,7 @@ class MainLoggingTests(unittest.TestCase):
                 "allow_any_original_host": True,
                 "allow_local_resolved_hosts": False,
                 "allow_printables_bundle": False,
+                "allowed_hosts": [],
             },
             "bambu_studio": {},
         }
@@ -331,7 +377,6 @@ class MainLoggingTests(unittest.TestCase):
 
             with (
                 patch("slicer_uri_bridge.handler.load_config", return_value=config),
-                patch("slicer_uri_bridge.handler.validate_remote_url"),
                 patch("slicer_uri_bridge.handler.resolve_bambu_command", return_value=["bambu-studio"]),
                 patch("slicer_uri_bridge.handler.download_model", return_value=archive),
                 patch("slicer_uri_bridge.handler.launch_bambu") as launch,
@@ -360,7 +405,6 @@ class MainLoggingTests(unittest.TestCase):
 
         with (
             patch("slicer_uri_bridge.handler.load_config", return_value=config),
-            patch("slicer_uri_bridge.handler.validate_remote_url"),
             patch("slicer_uri_bridge.handler.resolve_bambu_command", return_value=["bambu-studio"]),
             patch("slicer_uri_bridge.handler.download_model", side_effect=BridgeError("stop")) as download,
             patch("slicer_uri_bridge.handler.show_error"),
@@ -391,7 +435,6 @@ class MainLoggingTests(unittest.TestCase):
 
             with (
                 patch("slicer_uri_bridge.handler.load_config", return_value=config),
-                patch("slicer_uri_bridge.handler.validate_remote_url"),
                 patch("slicer_uri_bridge.handler.resolve_bambu_command", return_value=["bambu-studio"]),
                 patch("slicer_uri_bridge.handler.download_model", return_value=archive),
                 patch("slicer_uri_bridge.handler.extract_stl_archive") as extract,
@@ -428,7 +471,6 @@ class MainLoggingTests(unittest.TestCase):
 
             with (
                 patch("slicer_uri_bridge.handler.load_config", return_value=config),
-                patch("slicer_uri_bridge.handler.validate_remote_url"),
                 patch("slicer_uri_bridge.handler.resolve_bambu_command", return_value=["bambu-studio"]),
                 patch("slicer_uri_bridge.handler.download_model", return_value=archive),
                 patch("slicer_uri_bridge.handler.launch_bambu") as launch,
@@ -691,7 +733,6 @@ class ThreeMfPostProcessTests(unittest.TestCase):
 
             with (
                 patch("slicer_uri_bridge.handler.load_config", return_value=config),
-                patch("slicer_uri_bridge.handler.validate_remote_url"),
                 patch("slicer_uri_bridge.handler.resolve_bambu_command", return_value=["bambu-studio"]),
                 patch("slicer_uri_bridge.handler.download_model", return_value=path),
                 patch("slicer_uri_bridge.handler.launch_bambu") as launch,

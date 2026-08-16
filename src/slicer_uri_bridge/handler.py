@@ -17,21 +17,28 @@ import tomllib
 import urllib.error
 import urllib.parse
 import urllib.request
-import urllib.response
 import zipfile
+from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from .acnext import (
+    ACNEXT_SCHEME,
+    configured_acnext_endpoint,
+    parse_acnext_uri,
+    redact_protocol_uri,
+    resolve_acnext_download,
+)
 from .config import missing_config_message, user_config_path, user_log_path
 from .exceptions import BridgeError
 from .files import BUFFER_SIZE, MAX_MODEL_BYTES, STL_SUFFIX, ZIP_SUFFIX, available_destination, safe_filename
+from .network import USER_AGENT, NoRedirectHandler, has_control_chars
 from .stl_archive import extract_stl_archive
 from .ui import show_bundle_hint, show_error, show_warning
 
 CONFIG_FILE = user_config_path()
 LOG_FILE = user_log_path()
 SUPPORTED_QUERY_SCHEMES = {"cura", "crealityprintlink", "prusaslicer", "orcaslicer"}
-USER_AGENT = "OrcaSlicer/2.4.0-dev"
 IS_WINDOWS = sys.platform == "win32"
 IS_MACOS = sys.platform == "darwin"
 MAX_REDIRECTS = 5
@@ -45,14 +52,11 @@ WINDOWS_COMMAND_LINE_LIMIT = 32767
 logger = logging.getLogger("slicer_uri_bridge")
 
 
-class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        return None
-
-    def return_response(self, req, fp, code, msg, headers):
-        return urllib.response.addinfourl(fp, headers, req.full_url, code=code)
-
-    http_error_301 = http_error_302 = http_error_303 = http_error_307 = http_error_308 = return_response
+@dataclass(frozen=True)
+class DownloadTarget:
+    url: str
+    suggested_name: str | None
+    trusted_resolver: bool = False
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
@@ -202,10 +206,6 @@ def normalize_host(host: str) -> str:
     return host.rstrip(".").lower()
 
 
-def has_control_chars(value: str) -> bool:
-    return any(ord(character) < 32 or ord(character) == 127 for character in value)
-
-
 def strip_trailing_model_slash(url: str, allowed_extensions: set[str]) -> str:
     without_slash = url.rstrip("/")
     extensions = allowed_extensions | {ZIP_SUFFIX}
@@ -241,6 +241,35 @@ def extract_download(protocol_uri: str, allowed_extensions: set[str]) -> tuple[s
         raise BridgeError("Download URL contains unsupported control characters.")
 
     return strip_trailing_model_slash(download_url, allowed_extensions), suggested_name
+
+
+def resolve_download_target(
+    protocol_uri: str,
+    allowed_extensions: set[str],
+    config: dict,
+) -> DownloadTarget:
+    scheme = protocol_uri.partition(":")[0].lower()
+    if scheme == ACNEXT_SCHEME:
+        payload = parse_acnext_uri(protocol_uri)
+        endpoint = configured_acnext_endpoint(payload, config)
+        try:
+            validate_remote_url(
+                endpoint,
+                allowed_hosts=set(),
+                allow_any_original_host=True,
+                allow_plain_http=False,
+                check_allowlist=False,
+                allow_local_resolved_hosts=False,
+            )
+        except BridgeError as exc:
+            raise BridgeError(f"Invalid configuration value acnext.{payload.endpoint_key}: {exc}") from exc
+        download_url = resolve_acnext_download(payload, endpoint=endpoint)
+        logger.info("Resolved acnext URI to a signed download URL")
+        return DownloadTarget(download_url, payload.file_name, trusted_resolver=True)
+
+    download_url, suggested_name = extract_download(protocol_uri, allowed_extensions)
+    logger.info("Resolved input URI with download URL: %s", download_url)
+    return DownloadTarget(download_url, suggested_name)
 
 
 def is_empty_bambustudioopen_uri(protocol_uri: str) -> bool:
@@ -393,9 +422,8 @@ def request_headers(url: str, referrer: str | None) -> dict[str, str]:
 
 
 def download_model(
-    initial_url: str,
+    target: DownloadTarget,
     *,
-    suggested_name: str | None,
     allowed_extensions: set[str],
     download_folder: Path | None,
     allowed_hosts: set[str],
@@ -404,16 +432,19 @@ def download_model(
     allow_local_resolved_hosts: bool,
 ) -> Path:
     opener = urllib.request.build_opener(NoRedirectHandler())
+    initial_url = target.url
     current_url = initial_url
     referrer = None
+    # API-resolved URLs stay HTTPS-only even when plain HTTP is enabled for user-supplied URLs.
+    allow_plain_http_for_target = allow_plain_http and not target.trusted_resolver
 
     for redirect_index in range(MAX_REDIRECTS + 1):
         validate_remote_url(
             current_url,
             allowed_hosts=allowed_hosts,
             allow_any_original_host=allow_any_original_host,
-            allow_plain_http=allow_plain_http,
-            check_allowlist=redirect_index == 0,
+            allow_plain_http=allow_plain_http_for_target,
+            check_allowlist=not target.trusted_resolver and redirect_index == 0,
             allow_local_resolved_hosts=allow_local_resolved_hosts,
         )
 
@@ -453,7 +484,7 @@ def download_model(
             file_name = choose_filename(
                 current_url,
                 initial_url,
-                suggested_name,
+                target.suggested_name,
                 allowed_extensions,
             )
             if not is_supported_extension(file_name, allowed_extensions):
@@ -699,14 +730,13 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         try:
-            download_url, suggested_name = extract_download(uri, allowed_extensions)
+            target = resolve_download_target(uri, allowed_extensions, config)
         except BridgeError:
-            logger.error("Input URI: %r", uri)
+            logger.error("Input URI: %r", redact_protocol_uri(uri))
             raise
-        logger.info(f"Resolved input URI with download URL: {download_url}")
 
         allow_bundle = security.get("allow_printables_bundle", True)
-        predicted_name = suggested_name or filename_from_url(download_url)
+        predicted_name = target.suggested_name or filename_from_url(target.url)
         if is_zip_filename(predicted_name):
             assert_printables_bundle_allowed(allowed_extensions, allow_bundle=allow_bundle)
         download_extensions = allowed_extensions | (
@@ -714,20 +744,10 @@ def main(argv: list[str] | None = None) -> int:
         )
 
         allowed_hosts, allow_any_original_host = load_allowed_hosts(config)
-        validate_remote_url(
-            download_url,
-            allowed_hosts=allowed_hosts,
-            allow_any_original_host=allow_any_original_host,
-            allow_plain_http=allow_plain_http,
-            check_allowlist=True,
-            allow_local_resolved_hosts=allow_local_resolved_hosts,
-        )
-
         command = resolve_bambu_command(config)
 
         downloaded_path = download_model(
-            download_url,
-            suggested_name=suggested_name,
+            target,
             allowed_extensions=download_extensions,
             download_folder=download_folder,
             allowed_hosts=allowed_hosts,

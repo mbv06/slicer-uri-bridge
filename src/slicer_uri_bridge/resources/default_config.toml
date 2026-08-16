@@ -19,6 +19,16 @@ allowed_hosts = [
   "internal-creality-usa.oss-accelerate.aliyuncs.com",
 ]
 
+[acnext]
+# regionCn/prod flags from the link select one of these trusted API endpoints.
+# The selected endpoint receives the link's access token and is trusted independently of allowed_hosts.
+# Endpoints must use HTTPS and resolve to public network addresses.
+# Signed download URLs are also HTTPS-only, regardless of security.allow_plain_http.
+global_production_endpoint = "https://api.makeronline.com/file/fileService/download"
+global_development_endpoint = "https://common-mo-itdev.anycubic.com/file/fileService/download"
+china_production_endpoint = "https://api.makeronline.cn/file/fileService/download"
+china_development_endpoint = "https://common-mo-itdev-cn.anycubic.com/file/fileService/download"
+
 [bambu_studio]
 windows = 'C:\Program Files\Bambu Studio\bambu-studio.exe'
 macos = "/Applications/BambuStudio.app"

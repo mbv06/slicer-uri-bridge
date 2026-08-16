@@ -232,12 +232,37 @@ linux = "/custom/BambuStudio.AppImage"
         self.assertIn("security.allow_local_resolved_hosts", added)
         self.assertIn("security.allow_printables_bundle", added)
         self.assertIn("security.post_process_action", added)
+        self.assertIn("acnext.global_production_endpoint", added)
         self.assertTrue(merged["security"]["allow_plain_http"])
         self.assertFalse(merged["security"]["allow_any_original_host"])
         self.assertEqual(merged["bambu_studio"]["linux"], "/custom/BambuStudio.AppImage")
         self.assertFalse(merged["security"]["allow_local_resolved_hosts"])
         self.assertTrue(merged["security"]["allow_printables_bundle"])
         self.assertEqual(merged["security"]["post_process_action"], "warn")
+        self.assertEqual(
+            merged["acnext"]["global_production_endpoint"],
+            "https://api.makeronline.com/file/fileService/download",
+        )
+
+    def test_real_default_template_preserves_custom_acnext_endpoint(self) -> None:
+        custom_endpoint = "https://maker-proxy.example/v2/download"
+        user = (
+            default_config_text()
+            .replace(
+                'global_production_endpoint = "https://api.makeronline.com/file/fileService/download"',
+                f'global_production_endpoint = "{custom_endpoint}"',
+            )
+            .replace(
+                'china_development_endpoint = "https://common-mo-itdev-cn.anycubic.com/file/fileService/download"\n',
+                "",
+            )
+        )
+
+        updated, added = upgrade_config_text(user)
+        merged = tomllib.loads(updated)
+
+        self.assertEqual(added, ["acnext.china_development_endpoint"])
+        self.assertEqual(merged["acnext"]["global_production_endpoint"], custom_endpoint)
 
 
 class UpgradeUserConfigTests(unittest.TestCase):

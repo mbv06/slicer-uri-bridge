@@ -35,8 +35,8 @@ class FakeManager:
 
 class ProtocolResolutionTests(unittest.TestCase):
     def test_resolve_aliases_and_dedupe(self) -> None:
-        selected = resolve_protocols(["bambu", "bambustudioopen", "orca-slicer"])
-        self.assertEqual([item.protocol for item in selected], ["bambustudioopen", "orcaslicer"])
+        selected = resolve_protocols(["bambu", "bambustudioopen", "Anycubic Slicer Next", "orca-slicer"])
+        self.assertEqual([item.protocol for item in selected], ["bambustudioopen", "acnext", "orcaslicer"])
 
     def test_unknown_alias_raises(self) -> None:
         with self.assertRaises(ValueError):
@@ -48,6 +48,7 @@ class AutoSelectionTests(unittest.TestCase):
         manager = FakeManager(
             {
                 "bambustudioopen": ("vendor.bambu", False),
+                "acnext": (None, False),
                 "cura": (None, False),
                 "prusaslicer": ("vendor.prusa", False),
                 "orcaslicer": ("vendor.orca", False),
@@ -55,7 +56,7 @@ class AutoSelectionTests(unittest.TestCase):
             }
         )
         selected = select_auto(manager, "register")  # type: ignore[arg-type]
-        self.assertEqual([item.protocol for item in selected], ["bambustudioopen", "cura"])
+        self.assertEqual([item.protocol for item in selected], ["bambustudioopen", "acnext", "cura"])
 
     def test_unregister_auto_selects_only_our_handlers(self) -> None:
         manager = FakeManager(
